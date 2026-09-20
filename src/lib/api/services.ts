@@ -16,7 +16,7 @@ import type {
 } from "@/lib/demo/types";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api/client";
 import { pollDiagnosis, type DiagnosisOptions } from "./diagnosis";
-import { getSessionUser, getAccessToken, signInWithPassword, signOutSession, signUpNewUser } from "@/lib/api/supabase";
+import { getSessionUser, getAccessToken, signInWithPassword, signOutSession, signUpNewUser, requestPasswordReset, updateUserPassword } from "@/lib/api/supabase";
 import {
   mapCase,
   mapContribution,
@@ -41,6 +41,9 @@ import { useWalletStore } from "@/lib/state/wallet";
 import { useNotificationStore } from "@/lib/state/notifications";
 import { useLeaderboardStore } from "@/lib/state/leaderboard";
 import { notify } from "@/lib/feedback";
+import { connectWallet, disconnectWallet, describeWeb3Error, switchToChain } from "@/lib/web3/actions";
+import { web3Config } from "@/lib/web3/config";
+import { apiWeb3Service } from "@/lib/api/web3";
 import type {
   AuthResult,
   AuthService,
@@ -120,6 +123,18 @@ export class ApiAuthService implements AuthService {
 
   getUser(): DemoUser | null {
     return useAuthStore.getState().user;
+  }
+
+  async requestPasswordReset(email: string, redirectTo: string): Promise<AuthResult> {
+    const { error } = await requestPasswordReset(email, redirectTo);
+    if (error) return { ok: false, error };
+    return { ok: true };
+  }
+
+  async updatePassword(newPassword: string): Promise<AuthResult> {
+    const { error } = await updateUserPassword(newPassword);
+    if (error) return { ok: false, error };
+    return { ok: true };
   }
 
   private async establishSession(): Promise<AuthResult> {
@@ -391,14 +406,63 @@ export class ApiWalletService implements WalletService {
   }
 
   async connect(provider: WalletProvider): Promise<string> {
-    useWalletStore.getState().fail(WEB3_NOTICE);
-    notify.error("Wallet connection not available", WEB3_NOTICE);
-    void provider;
-    return "error";
+    const store = useWalletStore.getState();
+    store.setConnecting(provider);
+    try {
+      const identity = await connectWallet();
+      store.setChainId(identity.chainId);
+      if (web3Config.chainId && identity.chainId !== web3Config.chainId) {
+        store.setWrongNetwork(web3Config.chainId, identity.chainId);
+        return "wrong-network" as const;
+      }
+      store.setConnected(identity.address, identity.chainId, web3Config.network, provider);
+      return "connected";
+    } catch (error) {
+      const mapped = describeWeb3Error(error);
+      store.fail(mapped.message);
+      return "error";
+    }
   }
 
   disconnect(): void {
+    void disconnectWallet();
     useWalletStore.getState().disconnect();
+  }
+
+  async requestChallenge(address: string, chainId: number) {
+    const challenge = await apiWeb3Service.requestChallenge(address, chainId);
+    useWalletStore.getState().setChallenge(challenge);
+    return challenge;
+  }
+
+  async verifyOwnership(params: { address: string; chainId: number; signature: string; nonce: string | null }) {
+    const result = await apiWeb3Service.verifyWallet(params);
+    if (result.status === "verified") {
+      useWalletStore.getState().markVerified();
+    }
+    return result;
+  }
+
+  async switchNetwork(chainId: number): Promise<void> {
+    await switchToChain(chainId);
+    useWalletStore.getState().setChainId(chainId);
+  }
+
+  markWrongNetwork(): void {
+    const s = useWalletStore.getState();
+    s.setWrongNetwork(web3Config.chainId, s.chainId ?? null);
+  }
+
+  resolveError(): void {
+    const s = useWalletStore.getState();
+    if (s.address) {
+      if (web3Config.chainId && s.chainId && s.chainId !== web3Config.chainId) {
+        s.setWrongNetwork(web3Config.chainId, s.chainId);
+      } else {
+        s.setConnected(s.address, s.chainId ?? web3Config.chainId, web3Config.network, s.provider ?? "MetaMask");
+      }
+    }
+    s.setLastError(undefined);
   }
 }
 

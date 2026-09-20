@@ -44,4 +44,10 @@ describe("service factory", () => {
     expect(pending).toBeInstanceOf(Promise);
     void pending;
   });
+
+  it("keeps chain verification out of the demo wallet provider", () => {
+    expect(walletService.connect("MetaMask")).toBeInstanceOf(Promise);
+    expect(walletService.requestChallenge).toBeUndefined();
+    expect(walletService.verifyOwnership).toBeUndefined();
+  });
 });

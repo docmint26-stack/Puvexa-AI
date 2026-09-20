@@ -18,9 +18,18 @@ async def provider_post(url: str, api_key: str, payload: dict, timeout: float):
                     return response.json()
                 except ValueError:
                     raise APIError(502, "VALIDATION_FAILED", "Provider returned invalid JSON.") from None
+            detail = ""
+            try:
+                body = response.json()
+                err = body.get("error", {})
+                detail = str(err.get("message", "")) if isinstance(err, dict) else str(err)
+            except ValueError:
+                detail = response.text[:200]
+            detail = (" " + detail.strip().replace("\n", " ")[:200]) if detail.strip() else ""
             code = "AI_PROVIDER_RATE_LIMIT" if response.status_code == 429 else "AI_PROVIDER_ERROR"
             if response.status_code < 500 and response.status_code != 429:
-                raise APIError(502, code, "AI provider could not complete this request.")
+                raise APIError(502, "AI_PROVIDER_ERROR", f"AI provider could not complete this request.{detail}") from None
+            raise APIError(502, code, f"AI provider could not complete this request.{detail}") from None
         except httpx.TimeoutException:
             code = "AI_PROVIDER_TIMEOUT"
         except httpx.RequestError:

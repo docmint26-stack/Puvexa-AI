@@ -26,7 +26,7 @@ function safeNext(): string | null {
 
 export function AuthForm({ mode }: { mode: "login" | "signup" | "forgot" }) {
   const router = useRouter();
-  const { login, signup } = useAuthActions();
+  const { login, signup, requestPasswordReset } = useAuthActions();
   const [loading, setLoading] = React.useState(false);
   const [sent, setSent] = React.useState(false);
   const [error, setError] = React.useState("");
@@ -49,7 +49,22 @@ export function AuthForm({ mode }: { mode: "login" | "signup" | "forgot" }) {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isForgot) {
-      setSent(true);
+      setError("");
+      setLoading(true);
+      try {
+        const redirectTo = `${window.location.origin}/reset-password`;
+        const res = requestPasswordReset ? await requestPasswordReset(email, redirectTo) : null;
+        if (res && !res.ok) {
+          setError(res.error ?? "Could not send a reset link. Please try again.");
+          setLoading(false);
+          return;
+        }
+        setSent(true);
+      } catch {
+        setError("Unexpected error. Please try again.");
+      } finally {
+        setLoading(false);
+      }
       return;
     }
     setError("");
@@ -199,7 +214,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" | "forgot" }) {
 
             {sent && (
               <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
-                Reset link sent — check your inbox (demo).
+                If an account exists for this email, a reset link is on its way.
               </p>
             )}
 

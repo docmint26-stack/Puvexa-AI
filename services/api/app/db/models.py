@@ -185,12 +185,13 @@ class ReputationEvent(Identity, Base):
     idempotency_key: Mapped[str] = mapped_column(String(255), unique=True)
 
 
-class KnowledgeAttribution(Identity, Base):
+class KnowledgeAttribution(Identity, Updated, Base):
     __tablename__ = "knowledge_attributions"
     fix_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), ForeignKey("fixes.id", ondelete="RESTRICT"))
     contributor_user_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), ForeignKey("profiles.id", ondelete="CASCADE"))
     ownership_share: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     attribution_type: Mapped[str] = mapped_column(String(255), default='creator')
+    version: Mapped[int] = mapped_column(Integer, default=1)
 
 
 class WalletLink(Identity, Updated, Base):
@@ -200,7 +201,46 @@ class WalletLink(Identity, Updated, Base):
     chain_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(255), default='pending')
     verification_nonce_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    nonce: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    nonce_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    nonce_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ClaimReservation(Identity, Updated, Base):
+    __tablename__ = "claim_reservations"
+    reward_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), ForeignKey("reward_ledger.id", ondelete="CASCADE"))
+    user_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), ForeignKey("profiles.id", ondelete="CASCADE"))
+    state: Mapped[str] = mapped_column(String(255), default='reserved')
+    signed_payload_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    chain_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tx_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    claim_id: Mapped[str | None] = mapped_column(String(66), nullable=True, unique=True)
+    wallet_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    contract_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    deadline: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reserved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Web3Transaction(Identity, Updated, Base):
+    __tablename__ = "web3_transactions"
+    user_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), ForeignKey("profiles.id", ondelete="CASCADE"))
+    claim_id: Mapped[str | None] = mapped_column(String(66), nullable=True)
+    tx_type: Mapped[str] = mapped_column(String(255))
+    tx_hash: Mapped[str] = mapped_column(String(255), unique=True)
+    chain_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(255), default='submitted')
+    from_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    to_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    block_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class Notification(Identity, Base):
@@ -342,8 +382,16 @@ Index("ix_outcome_intelligence_fix", OutcomeIntelligence.fix_id)
 Index("ix_outcome_intelligence_cat_err", OutcomeIntelligence.category, OutcomeIntelligence.error_family)
 Index("ix_diagnosis_sources_diag", DiagnosisSource.diagnosis_id)
 Index("ix_ai_runs_user_task", AIRun.user_id, AIRun.task_type)
+Index("ix_claim_user_state", ClaimReservation.user_id, ClaimReservation.state, ClaimReservation.created_at)
+Index("ix_claim_reward", ClaimReservation.reward_id)
+Index("ix_w3tx_user_created", Web3Transaction.user_id, Web3Transaction.created_at)
+Index("ix_w3tx_tx_hash", Web3Transaction.tx_hash)
+Index("ix_w3tx_claim", Web3Transaction.claim_id)
 Case.__table__.append_constraint(UniqueConstraint("id", "user_id"))
 CaseFixRecommendation.__table__.append_constraint(UniqueConstraint("case_id", "fix_id"))
 RewardLedger.__table__.append_constraint(CheckConstraint("amount >= 0", name="nonnegative_amount"))
 KnowledgeAttribution.__table__.append_constraint(CheckConstraint("ownership_share > 0 AND ownership_share <= 1", name="valid_share"))
+KnowledgeAttribution.__table__.append_constraint(UniqueConstraint("fix_id", "contributor_user_id", "attribution_type", "version", name="unique_fix_contributor_attribution_version"))
+ClaimReservation.__table__.append_constraint(UniqueConstraint("reward_id", name="unique_claim_per_reward"))
+ClaimReservation.__table__.append_constraint(CheckConstraint("state IN ('claimable', 'reserved', 'signed', 'submitted', 'confirmed', 'released', 'failed')", name="valid_claim_state"))
 

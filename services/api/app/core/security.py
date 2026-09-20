@@ -29,11 +29,25 @@ def verify_token(token: str) -> Identity:
     if not settings.supabase_url:
         raise APIError(503, "AUTH_NOT_CONFIGURED", "Authentication is not configured yet.")
     try:
-        key = jwks_client(settings.supabase_jwks_url or settings.issuer + "/.well-known/jwks.json").get_signing_key_from_jwt(token)
-        claims = jwt.decode(token, key.key, algorithms=["RS256", "ES256"], audience="authenticated", issuer=settings.issuer, options={"require": ["exp", "sub", "aud", "iss", "iat"]})
+        key = jwks_client(
+            settings.supabase_jwks_url or settings.issuer + "/.well-known/jwks.json"
+        ).get_signing_key_from_jwt(token)
+        claims = jwt.decode(
+            token,
+            key.key,
+            algorithms=["RS256", "ES256"],
+            audience="authenticated",
+            issuer=settings.issuer,
+            leeway=30,
+            options={"require": ["exp", "sub", "aud", "iss", "iat"]},
+        )
         if claims.get("role") != "authenticated":
             raise ValueError("Invalid role")
-        return Identity(id=str(UUID(claims["sub"])), email=claims.get("email", ""), display_name=claims.get("user_metadata", {}).get("display_name", "New Solver")[:100])
+        return Identity(
+            id=str(UUID(claims["sub"])),
+            email=claims.get("email", ""),
+            display_name=claims.get("user_metadata", {}).get("display_name", "New Solver")[:100],
+        )
     except (jwt.PyJWTError, ValueError, KeyError):
         raise APIError(401, "INVALID_TOKEN", "Your session is invalid or expired.") from None
 

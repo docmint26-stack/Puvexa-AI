@@ -14,6 +14,7 @@ import type {
   Transaction,
   WalletProvider,
 } from "@/lib/demo/types";
+import type { WalletChallenge } from "@/lib/web3/types";
 
 export interface AuthResult {
   ok: boolean;
@@ -25,6 +26,10 @@ export interface AuthService {
   signup(data: { name: string; email: string; username: string; password: string }): Promise<AuthResult>;
   logout(): void;
   getUser(): DemoUser | null;
+  /** Sends a recovery email via the configured auth provider (Supabase). */
+  requestPasswordReset?(email: string, redirectTo: string): Promise<AuthResult>;
+  /** Sets a new password for the current (recovery) session. */
+  updatePassword?(newPassword: string): Promise<AuthResult>;
 }
 
 export interface DiagnosisService {
@@ -61,6 +66,16 @@ export interface WalletService {
   state(): { status: string; provider: WalletProvider | null; address: string | null; shortAddress: string | null; network: string };
   connect(provider: WalletProvider): Promise<string>;
   disconnect(): void;
+  /** Production only: request a one-time ownership challenge from the backend. */
+  requestChallenge?(address: string, chainId: number): Promise<WalletChallenge>;
+  /** Production only: submit the signed challenge to prove wallet ownership. */
+  verifyOwnership?(params: { address: string; chainId: number; signature: string; nonce: string | null }): Promise<{ status: string; walletAddress: string }>;
+  /** Production only: switch the connected chain (e.g. to the configured testnet). */
+  switchNetwork?(chainId: number): Promise<void>;
+  /** Production only: record that the connected chain does not match the app chain. */
+  markWrongNetwork?(): void;
+  /** Production only: clear transient error state back to a usable connection state. */
+  resolveError?(): void;
 }
 
 export interface ContributionService {

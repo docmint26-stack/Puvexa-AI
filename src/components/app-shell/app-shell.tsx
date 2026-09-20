@@ -17,7 +17,6 @@ import {
   Plus,
   Sparkles,
   CheckCheck,
-  Wallet,
 } from "lucide-react";
 import { cn } from "cn";
 
@@ -38,11 +37,12 @@ import { Separator } from "@/components/ui/separator";
 import { Icon } from "@/components/shared/icon";
 import { CommandPalette, CommandTriggerButton } from "@/components/app-shell/command-palette";
 import { ProductTour } from "@/components/product-tour";
+import { WalletPanel } from "@/components/web3/wallet-panel";
+import { NetworkBadge } from "@/components/web3/network-badge";
 import { useTheme } from "@/components/providers";
 import { avatarGradient, initialsOf } from "@/lib/format";
 import { useCurrentUser, useNotifications } from "@/lib/hooks";
 import { useRewardStore } from "@/lib/state/rewards";
-import { useWalletStore } from "@/lib/state/wallet";
 import { useAuthActions } from "@/lib/hooks";
 import { notify } from "@/lib/feedback";
 
@@ -63,8 +63,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { items: notifications, unread, markRead, markAllRead } = useNotifications();
   const balance = useRewardStore((s) => s.balance);
   const claimable = useRewardStore((s) => s.claimable);
-  const walletStatus = useWalletStore((s) => s.status);
-  const walletShort = useWalletStore((s) => s.shortAddress);
 
   const [collapsed, setCollapsed] = React.useState(false);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
@@ -264,9 +262,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <CommandTriggerButton />
           <div className="flex-1" />
 
-          <Badge variant="outline" className="hidden gap-1 border-cyan-400/30 bg-cyan-400/10 px-2 text-[10px] text-cyan-300 sm:inline-flex">
-            <span className="size-1.5 rounded-full bg-cyan-300" /> DEMO / TESTNET
-          </Badge>
+          <div className="hidden sm:block">
+            <NetworkBadge />
+          </div>
 
           <Button size="sm" className="hidden sm:inline-flex" onClick={() => router.push("/diagnose")}>
             <Plus className="size-4" />
@@ -282,17 +280,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Plus className="size-4" />
           </Button>
 
-          {walletShort && walletStatus === "verified" && (
-            <button
-              onClick={() => router.push("/rewards")}
-              className="hidden items-center gap-1.5 rounded-full border border-border bg-card/60 px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-accent md:flex"
-              title="Wallet connected (demo / testnet)"
-            >
-              <Wallet className="size-3.5 text-success" />
-              {walletShort}
-              <span className="size-1.5 rounded-full bg-success" />
-            </button>
-          )}
+          <div className="hidden md:block">
+            <WalletPanel />
+          </div>
 
           <Button
             size="icon"

@@ -82,3 +82,55 @@ class ContributionPatch(StrictModel):
 
 class DeleteAccountRequest(StrictModel):
     confirmation: Literal["DELETE MY ACCOUNT"]
+
+
+class WalletChallengeCreate(StrictModel):
+    address: str = Field(min_length=20, max_length=200)
+    chain_id: int | None = Field(default=None, ge=1)
+
+
+class WalletVerifyCreate(StrictModel):
+    address: str = Field(min_length=20, max_length=200)
+    chain_id: int | None = Field(default=None, ge=1)
+    signature: str = Field(min_length=10, max_length=2000)
+    nonce: str | None = Field(default=None, min_length=16, max_length=200)
+
+
+class AttrCreate(StrictModel):
+    fix_id: UUID
+    share: float = Field(gt=0, le=1)
+    attribution_type: Literal["creator", "improver", "correction"] = "improver"
+    version: int = Field(default=1, ge=1)
+
+
+class ClaimSignCreate(StrictModel):
+    signed_payload_hash: str = Field(min_length=64, max_length=128, pattern=r"^[0-9a-fA-F]{64}$")
+
+
+class ClaimConfirmCreate(StrictModel):
+    chain_id: int = Field(ge=1)
+    tx_hash: str = Field(min_length=10, max_length=255)
+
+
+class Web3ClaimPrepareCreate(StrictModel):
+    reward_id: UUID
+    wallet_address: str = Field(min_length=20, max_length=200)
+    chain_id: int | None = Field(default=None, ge=1)
+
+
+class Web3ClaimConfirmCreate(StrictModel):
+    claim_id: str = Field(min_length=66, max_length=66)
+    tx_hash: str = Field(min_length=10, max_length=255)
+    chain_id: int | None = Field(default=None, ge=1)
+
+
+class Web3StakeCreate(StrictModel):
+    contribution_id: str = Field(min_length=10, max_length=255)
+    wallet_address: str = Field(min_length=20, max_length=200)
+    tx_hash: str = Field(min_length=10, max_length=255)
+    chain_id: int | None = Field(default=None, ge=1)
+
+
+class Web3StakeSettleCreate(StrictModel):
+    tx_hash: str = Field(min_length=10, max_length=255)
+    chain_id: int | None = Field(default=None, ge=1)

@@ -4,6 +4,7 @@ Provides a unified interface (AIProvider Protocol) decoupling the platform
 from specific LLM vendors. Supports OpenAIProvider, MockAIProvider, and
 UnconfiguredAIProvider for safe operation without an API key.
 """
+import base64
 import hashlib
 import json
 import math
@@ -36,6 +37,10 @@ from app.services.ai.schemas import (
     VerificationAnalysis,
 )
 from app.services.ai.validators import validate_and_parse
+
+PROMPT_VERSION_VISION = "vision_v1"
+PROMPT_VERSION_LOGS = "logs_v1"
+PROMPT_VERSION_CODE = "code_v1"
 
 
 @dataclass
@@ -588,6 +593,7 @@ class OpenAIProvider:
         self.model = model or get_settings().ai_model
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.vision_model = get_settings().ai_vision_model
         self.embedding_model = get_settings().ai_embedding_model
 
     async def generate_embedding(self, text: str) -> list[float]:
@@ -672,28 +678,197 @@ class OpenAIProvider:
         )
         return model_res, metrics
 
-    # Local deterministic capabilities are explicitly labeled; unsupported methods fail honestly.
+    def _metrics(self, in_tokens: int, out_tokens: int, latency_ms: int, prompt_version: str, model: str | None = None) -> AIRunMetrics:
+        s = get_settings()
+        cost = (
+            (in_tokens * s.ai_input_cost_per_million + out_tokens * s.ai_output_cost_per_million) / 1_000_000
+            if s.ai_cost_tracking_enabled
+            else 0.0
+        )
+        return AIRunMetrics(
+            input_tokens=in_tokens,
+            output_tokens=out_tokens,
+            latency_ms=latency_ms,
+            estimated_cost_usd=cost,
+            provider="openai",
+            model=model or self.model,
+            prompt_version=prompt_version,
+        )
+
+    async def _text_chat(self, system: str, user: str, model: str | None = None, temperature: float = 0.1) -> tuple[str, int, int]:
+        data = await provider_post(
+            f"{self.base_url}/chat/completions",
+            self.api_key,
+            {
+                "model": model or self.model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "response_format": {"type": "json_object"},
+                "temperature": temperature,
+            },
+            self.timeout,
+        )
+        try:
+            content = data["choices"][0]["message"]["content"]
+            usage = data.get("usage", {}) or {}
+        except (KeyError, IndexError, TypeError):
+            raise APIError(502, "VALIDATION_FAILED", "AI response has an invalid structure.") from None
+        return str(content), int(usage.get("prompt_tokens", 0)), int(usage.get("completion_tokens", 0))
+
     async def analyze_image(self, image_bytes: bytes, mime_type: str, prompt: str = "") -> tuple[ImageAnalysis, AIRunMetrics]:
-        raise APIError(422, "AI_PROVIDER_NOT_CONFIGURED", "Image diagnosis is not configured in this environment. Supply redacted text evidence.")
+        start = time.perf_counter()
+        if mime_type not in ("image/png", "image/jpeg", "image/webp"):
+            raise APIError(422, "INVALID_MEDIA_TYPE", "Image evidence must be PNG, JPEG, or WebP.")
+        if not image_bytes or len(image_bytes) > 10 * 1024 * 1024:
+            raise APIError(422, "IMAGE_TOO_LARGE", "Image evidence exceeds the 10MB size limit.")
+        b64 = base64.b64encode(image_bytes).decode("ascii")
+        system = (
+            "You are a senior technical support engineer inspecting a user-provided screenshot. Describe only what is "
+            "visible in the image. If text is unclear, transcribe it as best-effort and keep confidence low; never "
+            "fabricate visible messages.\nRequired JSON schema:\n" + json.dumps(ImageAnalysis.model_json_schema())
+        )
+        user = prompt or "Analyze the screenshot and output the required JSON."
+        data = await provider_post(
+            f"{self.base_url}/chat/completions",
+            self.api_key,
+            {
+                "model": self.vision_model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": [{"type": "text", "text": user},
+                                                 {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64}"}}]},
+                ],
+                "response_format": {"type": "json_object"},
+                "temperature": 0.1,
+            },
+            self.timeout,
+        )
+        try:
+            content = data["choices"][0]["message"]["content"]
+            usage = data.get("usage", {}) or {}
+        except (KeyError, IndexError, TypeError):
+            raise APIError(502, "VALIDATION_FAILED", "AI response has an invalid structure.") from None
+        model_res, repaired, err = validate_and_parse(content, ImageAnalysis)
+        if model_res is None:
+            raise APIError(502, "VALIDATION_FAILED", "AI response failed structured validation.")
+        latency = int((time.perf_counter() - start) * 1000)
+        return model_res, self._metrics(
+            int(usage.get("prompt_tokens", 0)), int(usage.get("completion_tokens", 0)), latency, PROMPT_VERSION_VISION, self.vision_model
+        )
 
     async def analyze_logs(self, log_text: str) -> tuple[dict, AIRunMetrics]:
-        result = process_logs(redact_secrets(log_text)[0][:get_settings().ai_max_evidence_chars])
-        return asdict(result), AIRunMetrics(provider="deterministic", model="log-parser")
+        start = time.perf_counter()
+        cleaned = redact_secrets(log_text)[0][:get_settings().ai_max_evidence_chars]
+        det = process_logs(cleaned)
+        system = (
+            "You are an expert diagnostics engineer. The logs are pre-cleaned: secrets redacted, repeated lines "
+            "compacted, error signatures extracted. Identify the root cause and the single most useful next step.\n"
+            "Output strict JSON: {\"root_cause_hypothesis\": string, \"recommended_next_steps\": [string]}"
+        )
+        content, in_tokens, out_tokens = await self._text_chat(system, f"Log summary:\n{det.compact_text[:8000]}")
+        merged = asdict(det)
+        try:
+            extra = json.loads(redact_secrets(content)[0])
+        except (TypeError, ValueError):
+            extra = {}
+        if isinstance(extra, dict):
+            merged["root_cause_hypothesis"] = str(extra.get("root_cause_hypothesis") or "")
+            merged["recommended_next_steps"] = list(extra.get("recommended_next_steps") or [])
+        latency = int((time.perf_counter() - start) * 1000)
+        return merged, self._metrics(in_tokens, out_tokens, latency, PROMPT_VERSION_LOGS)
 
     async def analyze_code(self, code_text: str, language: str | None = None) -> tuple[dict, AIRunMetrics]:
-        result = analyze_code_snippet(redact_secrets(code_text)[0][:get_settings().ai_max_evidence_chars], language)
-        return asdict(result), AIRunMetrics(provider="deterministic", model="static-code-parser")
+        start = time.perf_counter()
+        cleaned = redact_secrets(code_text)[0][:get_settings().ai_max_evidence_chars]
+        det = analyze_code_snippet(cleaned, language)
+        base = asdict(det) if hasattr(det, "__dataclass_fields__") else dict(det) if isinstance(det, dict) else {}
+        system = (
+            "You are an expert software engineer reviewing a code snippet. Identify the bug, its root cause, and the "
+            "recommended fix.\nOutput strict JSON: {\"identified_bug\": string, \"root_cause\": string, \"suggested_fix\": string}"
+        )
+        content, in_tokens, out_tokens = await self._text_chat(system, f"Language: {language or 'unknown'}\nCode:\n```\n{cleaned[:8000]}\n```")
+        merged = dict(base)
+        try:
+            extra = json.loads(redact_secrets(content)[0])
+        except (TypeError, ValueError):
+            extra = {}
+        if isinstance(extra, dict):
+            merged["identified_bug"] = str(extra.get("identified_bug") or "")
+            merged["root_cause"] = str(extra.get("root_cause") or "")
+            merged["suggested_fix"] = str(extra.get("suggested_fix") or "")
+        latency = int((time.perf_counter() - start) * 1000)
+        return merged, self._metrics(in_tokens, out_tokens, latency, PROMPT_VERSION_CODE)
 
     async def rank_fixes(self, problem: ProblemAnalysis, candidate_fixes: list[dict], grounded_context: list[dict]) -> tuple[FixRankingResult, AIRunMetrics]:
-        from app.services.retrieval.reranker import FixRanker
-        ranked = FixRanker().score_and_rank_fixes(candidate_fixes, {"category": problem.category, "problem": problem.problem_summary})
-        return FixRankingResult(ranked_fixes=ranked, ranking_rationale="Deterministic context, source, outcome, risk and effort scoring."), AIRunMetrics(provider="deterministic", model="fix-ranker")
+        start = time.perf_counter()
+        heads = [
+            {
+                "id": fx.get("id"),
+                "title": fx.get("title", ""),
+                "summary": str(fx.get("summary", ""))[:300],
+                "risk_level": fx.get("risk_level", "low"),
+                "source_type": fx.get("source_type", "curated"),
+                "why_it_matches": str(fx.get("why_it_matches", ""))[:300],
+            }
+            for fx in candidate_fixes[:10]
+        ]
+        context = "Known facts:\n" + "\n".join(
+            f"- {f.get('title', '')}: {str(f.get('content', ''))[:200]}" for f in grounded_context[:8]
+        ) if grounded_context else "No grounded facts."
+        system = (
+            "You are a technical advice ranker. Rank the candidate solutions for the problem described, prioritizing "
+            "verified historical outcomes, official guidance, and fit to the reported symptoms.\nRequired JSON schema:\n"
+            + json.dumps(FixRankingResult.model_json_schema())
+        )
+        user = (
+            f"Problem: {problem.problem_summary}\nCategory: {problem.category}\nLikely causes: "
+            f"{[c.title for c in problem.likely_causes]}\n\n{context}\n\nCandidate fixes:\n{json.dumps(heads)}\n\n"
+            "Output the ranked fixes in the required schema (one entry per candidate, ranked best-first)."
+        )
+        content, in_tokens, out_tokens = await self._text_chat(system, user[: get_settings().ai_max_evidence_chars])
+        model_res, repaired, err = validate_and_parse(content, FixRankingResult)
+        if model_res is None or not model_res.ranked_fixes:
+            raise APIError(502, "VALIDATION_FAILED", "AI response failed structured validation.")
+        latency = int((time.perf_counter() - start) * 1000)
+        return model_res, self._metrics(in_tokens, out_tokens, latency, PROMPT_VERSION_RANKING)
 
     async def verify_outcome(self, case_info: dict, fix_info: dict, before_evidence: list[dict], after_evidence: list[dict], reported_result: str) -> tuple[VerificationAnalysis, AIRunMetrics]:
-        raise APIError(422, "VALIDATION_FAILED", "Use the category-specific outcome verification workflow.")
+        start = time.perf_counter()
+        system = (
+            "You are an outcome verification analyst. Decide whether a reported resolution is genuinely verified from the "
+            "evidence, or only partially verified / failed.\nRequired JSON schema:\n" + json.dumps(VerificationAnalysis.model_json_schema())
+        )
+        user = (
+            f"Case: {json.dumps(case_info)}\nFix applied: {json.dumps(fix_info)}\nReported result: {reported_result}\n\n"
+            f"Before evidence:\n{json.dumps([{k: (v or '')[:400] for k, v in e.items() if k in ('type', 'text', 'content')} for e in before_evidence])}\n"
+            f"After evidence:\n{json.dumps([{k: (v or '')[:400] for k, v in e.items() if k in ('type', 'text', 'content')} for e in after_evidence])}"
+        )
+        content, in_tokens, out_tokens = await self._text_chat(system, user[: get_settings().ai_max_evidence_chars])
+        model_res, repaired, err = validate_and_parse(content, VerificationAnalysis)
+        if model_res is None:
+            raise APIError(502, "VALIDATION_FAILED", "AI response failed structured validation.")
+        latency = int((time.perf_counter() - start) * 1000)
+        return model_res, self._metrics(in_tokens, out_tokens, latency, PROMPT_VERSION_VERIFICATION)
 
     async def score_contribution(self, title: str, description: str, steps: list[str], category: str, existing_fixes: list[dict]) -> tuple[ContributionScore, AIRunMetrics]:
-        raise APIError(422, "VALIDATION_FAILED", "Use the contribution anti-abuse review workflow.")
+        start = time.perf_counter()
+        system = (
+            "You are a community contributions reviewer. Score the novelty, evidence quality, verification strength, "
+            "utility, and fraud/duplicate risk of a proposed solution.\nRequired JSON schema:\n"
+            + json.dumps(ContributionScore.model_json_schema())
+        )
+        user = (
+            f"Title: {title}\nCategory: {category}\nDescription: {description}\nProposed steps: {json.dumps(steps)}\n"
+            f"Existing fixes to compare against:\n{json.dumps([{k: (f.get(k) or '')[:200] for k in ('id', 'title', 'summary')} for f in existing_fixes[:10]])}"
+        )
+        content, in_tokens, out_tokens = await self._text_chat(system, user[: get_settings().ai_max_evidence_chars])
+        model_res, repaired, err = validate_and_parse(content, ContributionScore)
+        if model_res is None:
+            raise APIError(502, "VALIDATION_FAILED", "AI response failed structured validation.")
+        latency = int((time.perf_counter() - start) * 1000)
+        return model_res, self._metrics(in_tokens, out_tokens, latency, PROMPT_VERSION_CONTRIBUTION)
 
     async def summarize_evidence(self, evidence_items: list[dict]) -> str:
         return "\n".join(redact_secrets(str(item.get("text", "")))[0] for item in evidence_items)[:get_settings().ai_max_evidence_chars]

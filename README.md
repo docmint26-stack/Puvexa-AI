@@ -170,9 +170,17 @@ injected and the `@/` alias resolved).
   creation, case progression through verification, reward claiming, staking, wallet
   connect/verify/disconnect, and contribution submission against the demo layer.
 - `src/lib/services/factory.test.ts` — asserts the service factory resolves to demo providers in
-  demo mode and that `startDiagnosis` is async across implementations.
+  demo mode, that `startDiagnosis` is async across implementations, and that the demo wallet
+  provider never exposes chain verification methods.
 - `src/lib/api/mappers.test.ts` — unit tests for status/profile/case/reward/leaderboard/notification/
   contribution mappers against API-shaped fixtures.
+- `src/lib/web3/config.test.ts` — web3 config demo/testnet/local modes, mainnet refusal, address
+  sanitizing, trust labels.
+- `src/lib/web3/mappers.test.ts` — wei/decimal helpers, challenge/transaction/status mappers.
+- `src/lib/web3/flows.test.ts` — claim flow (happy path, deadline expiry, revert, error mapping),
+  wallet verification, stake flow (approval skip/required/revert, stake revert, errors).
+- `src/lib/state/wallet.test.ts` — wallet store state transitions (connected/verified/wrong
+  network/error, resolve, disconnect).
 
 ## Production Configuration
 
@@ -194,13 +202,111 @@ The backend must be running and migrated (see `services/api`); Supabase must iss
   from the backend's verified/fix workflow (`source_type` guarded in routes).
 - The frontend never invents reward/reputation numbers; it renders `/api/v1/rewards/summary`,
   `/rewards/history`, `/profile/stats` and `/leaderboard` as-is.
-- Web3 claiming/staking/wallet linking is deferred: UI shows a notice until wallet verification and
-  smart-contract deployment land. Verified FIX is tracked off-chain meanwhile.
+- Web3 claiming/staking (Phase 5) is real but opt-in: with `NEXT_PUBLIC_WEB3_*` unset the UI
+  shows an honest "on-chain claiming is not configured" state; no simulated "Claim successful"
+  ever appears in production. Verified FIX is tracked off-chain until then.
 
-## Phase 4 local closeout
+## Phase 4 / 4.5 / 5 local closeouts
 
-See [PHASE4_CLOSEOUT.md](PHASE4_CLOSEOUT.md) for the architecture, validation evidence,
-known blockers, and next steps. Phase 5 is not started.
+See [PHASE4_CLOSEOUT.md](PHASE4_CLOSEOUT.md), [PHASE45_CLOSEOUT.md](PHASE45_CLOSEOUT.md)
+(security gate, 25 items) and [PHASE5_CLOSEOUT.md](PHASE5_CLOSEOUT.md) (Web3 reward economy,
+14 local gate items) for architecture, validation evidence, known blockers and the Supabase
+production checklists.
+
+### Web3 (Phase 5)
+
+The production Web3 layer lives in `src/lib/web3/*` (config, wagmi client, chain actions,
+mappers, state machines) and `src/components/web3/*` (wallet panel, network badge,
+claim/stake dialogs, on-chain history). The backend exposes `/api/v1/web3/*` claim/stake
+endpoints and `/api/v1/wallet/*` challenge/verify with EIP-191 signatures. Contracts are in
+`contracts/` (Foundry; 40 passing tests) and are not part of the Next.js build.
+
+Set these only to engage real on-chain flows (chain id 31337 Anvil development; mainnet
+chain ids are rejected at config load):
+
+```
+NEXT_PUBLIC_DEMO_MODE=false
+NEXT_PUBLIC_WEB3_ENV=local
+NEXT_PUBLIC_WEB3_CHAIN_ID=31337
+NEXT_PUBLIC_WEB3_RPC_URL=http://127.0.0.1:8545
+NEXT_PUBLIC_FIXAI_TOKEN_ADDRESS=<token-contract>
+NEXT_PUBLIC_REWARD_DISTRIBUTOR_ADDRESS=<distributor-contract>
+NEXT_PUBLIC_STAKE_VAULT_ADDRESS=<vault-contract>
+NEXT_PUBLIC_CONTRIBUTION_REGISTRY_ADDRESS=<registry-contract>
+```
+
+Trust labels (LOCAL / TESTNET / DEMO) come from `networkIdentity()`; the wallet panel never
+asks for a seed phrase or private key — only a signing challenge. See
+[PHASE5_CLOSEOUT.md](PHASE5_CLOSEOUT.md) for the local Anvil dev walkthrough and the
+remaining production blockers (Supabase project, trusted signature verifier).
+
+### Local Anvil walkthrough (Web3 end-to-end)
+
+Requirements: Foundry (`forge`/`anvil`, verify with `forge --version`; on this machine they live
+under `C:\Users\PK\.foundry\bin`) and the backend venv (`services/api/.venv`).
+
+The one-command E2E boots everything and asserts the whole on-chain economy:
+
+```powershell
+Set-Location services/api
+.\.venv\Scripts\python.exe scripts/e2e_web3.py
+```
+
+This runs a fresh `anvil` node (chain 31337), deploys all contracts via
+`contracts/script/Deploy.s.sol` (writing `contracts/deployments/local.json`), starts the
+backend in-process with `WEB3_CLAIM_ENABLED=true`, and exercises: wallet challenge→EIP-191
+verify; claim prepare (signed EIP-712) → real on-chain `claim` tx → confirm; duplicate-prepare
+exclusivity; **exact-amount** token approval + stake → release; slash (25%) → return; royalty
+grant → claim; and claim/transaction history. Expected result: `32 passed, 0 failed`.
+
+Manual equivalent (when the automatic harness is not what you want):
+
+```powershell
+# Terminal 1 — chain + deploy (filled into deployments/local.json)
+anvil --port 8545 --chain-id 31337
+cd contracts
+forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 -vv
+
+# Terminal 2 — backend with web3 claim enabled
+cd ..\services\api
+$env:DATABASE_URL = 'sqlite+aiosqlite:///./puvexa.db'
+$env:WEB3_CLAIM_ENABLED = 'true'
+$env:WALLET_SIGNATURE_VERIFIER = 'eip191'
+$env:WEB3_CHAIN_ID = '31337'
+$env:WEB3_TESTNET_RPC_URL = 'http://127.0.0.1:8545'
+$env:WEB3_TOKEN_ADDRESS = '<token from local.json>'
+$env:WEB3_DISTRIBUTOR_ADDRESS = '<distributor from local.json>'
+$env:WEB3_STAKE_VAULT_ADDRESS = '<stakeVault from local.json>'
+$env:WEB3_REGISTRY_ADDRESS = '<registry from local.json>'
+$env:WEB3_REWARD_SIGNER_PRIVATE_KEY = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' # anvil account 2
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
+
+# Terminal 3 — frontend in LOCAL web3 mode
+Set-Location ../..
+npm.cmd run dev   # NEXT_PUBLIC_WEB3_ENV=local + addresses from local.json
+```
+
+In production the backend refuses mainnet chain ids at runtime and `ALLOW_MAINNET_DEPLOYMENT`
+stays `false`; the demo mode never simulates on-chain results.
+
+### BNB Testnet staging playbook (chain 97)
+
+Staging targets BNB Smart Chain Testnet (chain id 97). The deploy script writes a
+chain-id-keyed artifact so a testnet deploy never clobbers the local one:
+
+```powershell
+cd contracts
+# Funded testnet deployer key; NEVER use prod keys. Roles via PUVEXA_* env overrides.
+$env:PUVEXA_ARTIFACT = 'deployments/bnb-testnet.json'   # keep local.json untouched
+forge script script/Deploy.s.sol --rpc-url https://data-seed-prebsc-1-s1.bnbchain.org:8545 `
+  --broadcast --private-key 0x<funded-testnet-deployer-key> -vv
+```
+
+Then copy `deployments/bnb-testnet.json.example` values into `deployments/bnb-testnet.json`
+(or let the script fill them) and wire the backend/frontend `.env` (chain `97`,
+`NEXT_PUBLIC_WEB3_ENV=` anything but `local`, signer = `PUVEXA_REWARD_SIGNER`). Verify the
+deploy on [BscScan Testnet](https://testnet.bscscan.com); confirm the exact fixed supply
+(1B FIXAI, 18 decimals) before enabling `WEB3_CLAIM_ENABLED=true`. Mainnet remains refused.
 
 ### Local PostgreSQL and pgvector (PowerShell)
 
@@ -329,6 +435,10 @@ Inspect `services/api/evaluation-baseline.json`; low coverage scores remain visi
 4. Configure the private evidence storage bucket and owner-scoped access.
 5. Configure Supabase Auth and JWT issuer/JWKS values.
 6. Add backend secrets and frontend public environment keys.
-7. Switch production database/storage configuration; verify owner isolation and RLS.
+7. Enable RLS on `claim_reservations` (owner-only; service role for Signed/Confirm webhooks)
+   and verify the PostgreSQL-only constraints `valid_claim_state` and
+   `unique_fix_contributor_attribution_version` from the Phase 4.5 migration.
+8. Switch production database/storage configuration; verify owner isolation and RLS.
 
-No Firebase architecture or Phase 5 Web3 work is included.
+Phase 5 adds the Web3 reward economy (wallet verification, on-chain claim/stake dialogs,
+Foundry contracts) — see the Web3 section above. No Firebase architecture is included.

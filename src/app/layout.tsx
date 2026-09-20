@@ -3,6 +3,7 @@ import { Inter, Space_Grotesk } from "next/font/google";
 
 import "./globals.css";
 import { ThemeProvider } from "@/components/providers";
+import { Web3Provider } from "@/components/web3/web3-provider";
 import { SplashScreen } from "@/components/brand/splash";
 import { Toaster, toast } from "@/components/ui/toast";
 
@@ -64,9 +65,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         className={`${inter.variable} ${spaceGrotesk.variable} font-sans antialiased`}
       >
         <ThemeProvider>
-          <SplashScreen />
-          {children}
-          <Toaster toastManager={toast} />
+          <Web3Provider>
+            <SplashScreen />
+            {children}
+            <Toaster toastManager={toast} />
+          </Web3Provider>
         </ThemeProvider>
       </body>
     </html>

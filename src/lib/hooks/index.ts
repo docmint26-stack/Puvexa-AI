@@ -41,6 +41,8 @@ export function useAuthActions() {
     login: authService.login,
     signup: authService.signup,
     logout: authService.logout,
+    requestPasswordReset: authService.requestPasswordReset?.bind(authService),
+    updatePassword: authService.updatePassword?.bind(authService),
   };
 }
 
@@ -107,11 +109,19 @@ export function useWallet() {
   const shortAddress = useWalletStore((s) => s.shortAddress);
   const network = useWalletStore((s) => s.network);
   const lastError = useWalletStore((s) => s.lastError);
-  const state: Partial<WalletState> = { status, provider, address, shortAddress, network, lastError };
+  const chainId = useWalletStore((s) => s.chainId);
+  const verifiedAt = useWalletStore((s) => s.verifiedAt);
+  const challenge = useWalletStore((s) => s.challenge);
+  const state: Partial<WalletState> = { status, provider, address, shortAddress, network, lastError, chainId, verifiedAt, challenge };
   return {
     state,
     connect: walletService.connect,
     disconnect: walletService.disconnect,
+    requestChallenge: walletService.requestChallenge,
+    verifyOwnership: walletService.verifyOwnership,
+    switchNetwork: walletService.switchNetwork,
+    markWrongNetwork: walletService.markWrongNetwork,
+    resolveError: walletService.resolveError,
   };
 }
 

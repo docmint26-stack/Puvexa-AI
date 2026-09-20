@@ -16,7 +16,7 @@ EXPECTED_TABLES = [
     "fix_attempts", "outcomes", "contributions", "reward_ledger", "reputation_events",
     "knowledge_attributions", "wallet_links", "notifications", "user_settings", "audit_events",
     "account_deletion_requests", "knowledge_documents", "knowledge_chunks", "case_embeddings",
-    "fix_embeddings", "outcome_intelligence", "diagnosis_sources", "ai_runs",
+    "fix_embeddings", "outcome_intelligence", "diagnosis_sources", "ai_runs", "claim_reservations",
 ]
 
 
@@ -42,9 +42,10 @@ def test_migrations_upgrade_to_head(tmp_path, monkeypatch):
         return version, tables
 
     version, tables = asyncio.run(verify())
-    assert version == "20260918_phase4_intelligence"
+    assert version == "20260920_revoke_alembic_version"
     for table in EXPECTED_TABLES:
         assert table in tables, f"missing table {table}"
+    assert "web3_transactions" in tables, "missing table web3_transactions"
 
 
 def test_migrations_idempotent_stamp(tmp_path, monkeypatch):

@@ -8,16 +8,18 @@ from app.core.config import get_settings
 from app.core.exceptions import APIError
 from app.db.base import now
 from app.db.models import (
-    AuditEvent,
     Case,
+    Contribution,
     Fix,
     FixAttempt,
-    Notification,
     Outcome,
     Profile,
     ReputationEvent,
     RewardLedger,
 )
+from app.services.attribution import AttributionService
+from app.services.events import audit, notify
+from app.services.rewards import grant_fix_acceptance, grant_reputation
 
 TRANSITIONS = {"draft": {"submitted"}, "submitted": {"analyzing"}, "analyzing": {"suggested", "needs_review"}, "needs_review": {"suggested"}, "suggested": {"applied"}, "applied": {"monitoring"}, "monitoring": {"verified", "partially_verified", "failed", "needs_review"}}
 
@@ -26,14 +28,6 @@ def transition(case, target):
     if target not in TRANSITIONS.get(case.status, set()):
         raise APIError(409, "INVALID_TRANSITION", "This case cannot move to that state.")
     case.status = target
-
-
-def audit(db, user_id, action, entity_type, entity_id):
-    db.add(AuditEvent(user_id=user_id, action=action, entity_type=entity_type, entity_id=entity_id))
-
-
-def notify(db, user_id, title, message, kind="case", href=None):
-    db.add(Notification(user_id=user_id, title=title, message=message, type=kind, action_url=href))
 
 
 class AIProvider(Protocol):
@@ -133,6 +127,90 @@ async def accept_outcome(db, outcome_id: str):
         audit(db, outcome.user_id, "reward_generated", "outcome", outcome.id)
     notify(db, outcome.user_id, "Outcome reviewed", f"Review completed: {target.replace('_', ' ')}.", href=f"/cases/{case.id}")
     return outcome
+
+
+async def accept_contribution(db, contribution_id: str, actor_user_id: str):
+    """Admin-approved contribution acceptance. Idempotent per contribution.
+
+    Creates or attaches the fix, grants creator attribution (100%), and schedules an
+    idempotent off-chain reward (`accepted_fix:{fix_id}:{user_id}`) plus reputation.
+    """
+    contrib = await db.scalar(select(Contribution).where(Contribution.id == contribution_id).with_for_update())
+    if not contrib:
+        raise APIError(404, "CONTRIBUTION_NOT_FOUND", "Contribution not found.")
+    if contrib.status == "accepted":
+        return contrib
+    if contrib.status != "submitted":
+        raise APIError(409, "CONTRIBUTION_NOT_REVIEWABLE", "Only submitted contributions can be accepted.")
+
+    evidence_summary = contrib.evidence_summary or {}
+    steps = evidence_summary.get("steps", []) if isinstance(evidence_summary.get("steps"), list) else []
+    category = evidence_summary.get("category", "Apps & Productivity")
+    if category not in {"Coding Error", "Windows / OS", "Network & Wi-Fi", "Hardware & Devices", "Apps & Productivity", "Performance", "Security"}:
+        category = "Apps & Productivity"
+
+    if contrib.fix_id:
+        fix = await db.get(Fix, contrib.fix_id)
+        if not fix:
+            raise APIError(404, "FIX_NOT_FOUND", "Referenced fix no longer exists.")
+    else:
+        fix = Fix(
+            created_by_user_id=contrib.user_id,
+            title=contrib.title,
+            summary=contrib.description,
+            instructions=list(steps),
+            category=category,
+            source_type="community",
+            verification_status="unverified",
+        )
+        db.add(fix)
+        await db.flush()
+        contrib.fix_id = fix.id
+
+    contrib.status = "accepted"
+    contrib.reviewed_at = now()
+    await db.flush()
+
+    attribution = AttributionService(db)
+    await attribution.set_creator(fix.id, contrib.user_id, 1.0)
+
+    _, reward_created = await grant_fix_acceptance(
+        db, fix_id=fix.id, user_id=contrib.user_id, actor_user_id=actor_user_id
+    )
+    _, reputation_created = await grant_reputation(
+        db,
+        user_id=contrib.user_id,
+        event_type="contribution_accepted",
+        reference_id=fix.id,
+        points=50,
+        reason="Contribution accepted into the Puvexa knowledge graph.",
+        idempotency_key=f"accepted_fix:{fix.id}:{contrib.user_id}",
+        actor_user_id=actor_user_id,
+    )
+    audit(db, actor_user_id, "contribution_accepted", "contribution", contrib.id)
+
+    if reward_created:
+        notify(db, contrib.user_id, "Contribution accepted", "Your fix is live in the graph and a reward is now claimable.", "reward", "/rewards")
+    else:
+        notify(db, contrib.user_id, "Contribution accepted", "Your fix is live in the graph.", href="/leaderboard")
+    return contrib
+
+
+async def reject_contribution(db, contribution_id: str, actor_user_id: str):
+    """Admin-approved contribution rejection. Idempotent per contribution."""
+    contrib = await db.scalar(select(Contribution).where(Contribution.id == contribution_id).with_for_update())
+    if not contrib:
+        raise APIError(404, "CONTRIBUTION_NOT_FOUND", "Contribution not found.")
+    if contrib.status == "rejected":
+        return contrib
+    if contrib.status != "submitted":
+        raise APIError(409, "CONTRIBUTION_NOT_REVIEWABLE", "Only submitted contributions can be rejected.")
+    contrib.status = "rejected"
+    contrib.reviewed_at = now()
+    await db.flush()
+    audit(db, actor_user_id, "contribution_rejected", "contribution", contrib.id)
+    notify(db, contrib.user_id, "Contribution not accepted", "Reviewers did not accept your submission.", "/leaderboard")
+    return contrib
 
 
 class Web3RewardProvider(Protocol):

@@ -194,6 +194,12 @@ export type WalletStatus =
 
 export type WalletProvider = "MetaMask" | "WalletConnect" | "Coinbase Wallet";
 
+export interface WalletChallenge {
+  nonce: string;
+  message: string;
+  expiresAt: string;
+}
+
 export interface WalletState {
   status: WalletStatus;
   provider: WalletProvider | null;
@@ -201,6 +207,9 @@ export interface WalletState {
   shortAddress: string | null;
   network: string;
   lastError?: string;
+  chainId?: number | null;
+  verifiedAt?: string | null;
+  challenge?: WalletChallenge | null;
 }
 
 export type NotificationKind = "reward" | "case" | "system";

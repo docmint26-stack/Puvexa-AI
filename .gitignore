@@ -48,3 +48,8 @@ __pycache__/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# foundry (contracts)
+/contracts/lib/
+/contracts/out/
+/contracts/cache/
+/contracts/deployments/

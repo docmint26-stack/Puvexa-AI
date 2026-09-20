@@ -8,6 +8,7 @@ Orchestrates the 10-stage diagnosis pipeline:
 Enforces GroundedContext facts to eliminate hallucinations, tracks provenance in
 diagnosis_sources, records audit runs in ai_runs, and persists stage updates for status polling.
 """
+import logging
 import time
 from decimal import Decimal
 from typing import Any
@@ -39,6 +40,8 @@ from app.services.retrieval.embeddings import build_case_embedding_text
 from app.services.retrieval.knowledge_search import KnowledgeSearch
 from app.services.retrieval.reranker import FixRanker, check_destructive_content
 from app.services.retrieval.similar_cases import SimilarCaseRetriever
+
+logger = logging.getLogger("puvexa")
 
 STAGES = [
     ("RECEIVED", 5, "Diagnosis request received and queued"),
@@ -193,6 +196,10 @@ class PuvexaIntelligenceService:
                     cost_usd=Decimal(str(ai_metrics.estimated_cost_usd)),
                     status="completed",
                 )
+            )
+            logger.info(
+                "ai_run_completed",
+                extra={"fields": {"task_type": "diagnosis", "case_id": str(case.id), "status": "completed", "provider": ai_metrics.provider, "model": ai_metrics.model, "latency_ms": ai_metrics.latency_ms}},
             )
 
             # Stage 7: FIX_GENERATION
@@ -386,6 +393,7 @@ class PuvexaIntelligenceService:
                     error_code=exc.code,
                 )
             )
+            logger.warning("ai_run_failed", extra={"fields": {"task_type": "diagnosis", "case_id": str(case.id), "status": "failed", "error_code": exc.code}})
             case.status = "needs_review"
             case.current_diagnosis_id = diagnosis_run.id
             await self.db.flush()
@@ -410,6 +418,7 @@ class PuvexaIntelligenceService:
                     error_code=f"AI_PROVIDER_ERROR: {type(exc).__name__}",
                 )
             )
+            logger.error("ai_run_failed", exc_info=True, extra={"fields": {"task_type": "diagnosis", "case_id": str(case.id), "status": "failed", "error_code": f"AI_PROVIDER_ERROR: {type(exc).__name__}"}})
             case.status = "needs_review"
             case.current_diagnosis_id = diagnosis_run.id
             await self.db.flush()

@@ -53,6 +53,17 @@ export class DemoAuthService implements AuthService {
   getUser(): DemoUser | null {
     return useAuthStore.getState().user;
   }
+  async requestPasswordReset(email: string): Promise<AuthResult> {
+    await delay(600);
+    const exists = useAuthStore.getState().user?.email === email;
+    return exists
+      ? { ok: true }
+      : { ok: false, error: "Demo auth is local-only. Reset is available with Supabase configured." };
+  }
+  async updatePassword(): Promise<AuthResult> {
+    await delay(600);
+    return { ok: true };
+  }
 }
 
 export class DemoDiagnosisService implements DiagnosisService {

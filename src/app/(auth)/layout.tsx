@@ -1,6 +1,17 @@
 import type { ReactNode } from "react";
 import { Logo } from "@/components/brand/logo";
 import Link from "next/link";
+import { chainLabel, networkIdentity, web3Config } from "@/lib/web3/config";
+
+const identity = networkIdentity();
+const badgeText =
+  identity.mode === "demo"
+    ? "FIX Demo Environment"
+    : identity.mode === "local"
+      ? `FIX Local · ${chainLabel(web3Config.chainId)}`
+      : web3Config.chainId
+        ? `FIX Testnet · ${chainLabel(web3Config.chainId)}`
+        : "FIX Testnet";
 
 export default function AuthLayout({ children }: { children: ReactNode }) {
   return (
@@ -16,7 +27,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
             <Logo size="md" />
           </Link>
           <span className="rounded-full border border-border/70 bg-card/60 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            FIX Testnet · Sepolia
+            {badgeText}
           </span>
         </div>
         {children}

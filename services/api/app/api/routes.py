@@ -14,9 +14,11 @@ from app.core.exceptions import APIError
 from app.db.base import now
 from app.db.models import (
     AccountDeletionRequest,
+    AIRun,
     Case,
     CaseEvidence,
     CaseFixRecommendation,
+    ClaimReservation,
     Contribution,
     DiagnosisRun,
     DiagnosisSource,
@@ -30,13 +32,18 @@ from app.db.models import (
     ReputationEvent,
     RewardLedger,
     UserSettings,
+    WalletLink,
+    Web3Transaction,
 )
 from app.db.session import get_db
 from app.schemas.requests import (
     AttemptCreate,
     AttemptPatch,
+    AttrCreate,
     CaseCreate,
     CasePatch,
+    ClaimConfirmCreate,
+    ClaimSignCreate,
     ContributionCreate,
     ContributionPatch,
     DeleteAccountRequest,
@@ -44,18 +51,30 @@ from app.schemas.requests import (
     OutcomeCreate,
     ProfilePatch,
     SettingsPatch,
+    WalletChallengeCreate,
+    WalletVerifyCreate,
+    Web3ClaimConfirmCreate,
+    Web3ClaimPrepareCreate,
+    Web3StakeCreate,
+    Web3StakeSettleCreate,
 )
 from app.services.ai.orchestrator import PuvexaIntelligenceService
 from app.services.ai.provider import get_ai_provider
+from app.services.attribution import AttributionService
+from app.services.claims import ClaimReservationService
 from app.services.storage import get_storage, read_upload
 from app.services.verification.anti_abuse import ContributionAntiAbuseEngine
 from app.services.verification.learning import OutcomeLearningEngine
+from app.services.wallet import WalletVerificationService
+from app.services.web3_economy import Web3ConfigError, Web3EconomyService
 from app.services.workflows import (
     OBSERVATION_WINDOW,
     DevelopmentDeterministicProvider,
     UnconfiguredAIProvider,
+    accept_contribution,
     audit,
     notify,
+    reject_contribution,
     transition,
     verifier_for,
 )
@@ -586,6 +605,11 @@ async def update_contribution(contribution_id: UUID, body: ContributionPatch, db
 @router.post("/contributions/{contribution_id}/analyze", status_code=200)
 async def analyze_contribution_endpoint(contribution_id: UUID, db: DB, user: User):
     contrib = await owned(db, Contribution, contribution_id, user.id)
+    used = await db.scalar(select(func.count()).select_from(AIRun).where(
+        AIRun.user_id == user.id, AIRun.task_type == "contribution_analysis",
+        AIRun.created_at >= now() - timedelta(days=1)))
+    if used >= get_settings().contribution_review_rate_limit_per_day:
+        raise APIError(429, "AI_PROVIDER_RATE_LIMIT", "Daily contribution analysis limit reached. Please retry later.")
     steps = contrib.evidence_summary.get("steps", []) if isinstance(contrib.evidence_summary, dict) else []
     category = contrib.evidence_summary.get("category", "Apps & Productivity") if isinstance(contrib.evidence_summary, dict) else "Apps & Productivity"
 
@@ -604,6 +628,15 @@ async def analyze_contribution_endpoint(contribution_id: UUID, db: DB, user: Use
     meta = dict(contrib.evidence_summary or {})
     meta["ai_analysis"] = analysis.model_dump()
     contrib.evidence_summary = meta
+    db.add(AIRun(
+        user_id=user.id,
+        case_id=None,
+        task_type="contribution_analysis",
+        provider=get_settings().ai_provider,
+        model=get_settings().ai_model,
+        prompt_version="contrib_v1",
+        status="completed",
+    ))
     await db.flush()
     audit(db, user.id, "contribution_analyzed", "contribution", contrib.id)
     return {"contribution_id": contrib.id, "analysis": analysis.model_dump()}
@@ -635,6 +668,241 @@ async def rewards(db: DB, user: User, page: Page = 1, page_size: PageSize = 20):
 @router.get("/rewards/claimable")
 async def claimable_rewards(db: DB, user: User, page: Page = 1, page_size: PageSize = 20):
     return await paginate(db, select(RewardLedger).where(RewardLedger.user_id == user.id, RewardLedger.status == "claimable").order_by(RewardLedger.created_at.desc()), page, page_size)
+
+
+# ---- Phase 4.5: wallet verification (one-time nonce challenges) ----
+
+def wallet_verification_service(db):
+    """Builds the wallet service with the configured signature verifier.
+
+    The default is "none": signatures are refused until an operator opts in to a
+    concrete verifier via the `wallet_signature_verifier` setting (e.g. "eip191").
+    This keeps the safety invariant that signatures are never accepted without
+    cryptographic confirmation.
+    """
+    from app.services.wallet import EIP191SignatureVerifier
+
+    verifier = None
+    if get_settings().wallet_signature_verifier == "eip191":
+        verifier = EIP191SignatureVerifier()
+    return WalletVerificationService(db, verifier=verifier)
+
+
+@router.post("/wallet/challenge", status_code=201)
+async def wallet_challenge(body: WalletChallengeCreate, db: DB, user: User):
+    service = wallet_verification_service(db)
+    return await service.create_challenge(user.id, body.address, body.chain_id)
+
+
+@router.post("/wallet/verify")
+async def wallet_verify(body: WalletVerifyCreate, db: DB, user: User):
+    service = wallet_verification_service(db)
+    return await service.verify(user.id, body.address, body.signature, body.chain_id, body.nonce)
+
+
+@router.post("/wallet/{wallet_id}/revoke")
+async def wallet_revoke(wallet_id: UUID, db: DB, user: User):
+    link = await owned(db, WalletLink, wallet_id, user.id)
+    link.status = "revoked"
+    link.nonce = None
+    link.nonce_expires_at = None
+    link.nonce_used_at = None
+    await db.flush()
+    audit(db, user.id, "wallet_link_revoked", "wallet", link.id)
+    return serialize(link)
+
+
+# ---- Phase 4.5: knowledge attribution (ownership <= 100%) ----
+
+@router.post("/attributions", status_code=201)
+async def create_attribution(body: AttrCreate, db: DB, user: User):
+    service = AttributionService(db)
+    if body.attribution_type == "creator":
+        return serialize(await service.set_creator(body.fix_id, user.id, body.share))
+    return serialize(await service.add_contribution_share(body.fix_id, user.id, body.share, body.attribution_type, body.version, user.id))
+
+
+@router.get("/attributions/{fix_id}")
+async def list_attributions(fix_id: UUID, db: DB, user: User, version: int = 1):
+    service = AttributionService(db)
+    rows = await service.list_for_fix(str(fix_id), version)
+    return {"items": [serialize(r) for r in rows], "total": len(rows), "remaining_share": float(await service.remaining_share(str(fix_id), version))}
+
+
+# ---- Phase 4.5: future claim reservations (state machine) ----
+
+@router.post("/rewards/{reward_id}/claim-reservation", status_code=201)
+async def reserve_future_claim(reward_id: UUID, db: DB, user: User):
+    service = ClaimReservationService(db)
+    claim = await service.reserve(str(reward_id), user.id)
+    return serialize(claim)
+
+
+@router.post("/claim-reservations/{claim_id}/sign")
+async def sign_claim(claim_id: UUID, body: ClaimSignCreate, db: DB, user: User):
+    service = ClaimReservationService(db)
+    return serialize(await service.record_signed(str(claim_id), user.id, body.signed_payload_hash))
+
+
+@router.post("/claim-reservations/{claim_id}/submit")
+async def submit_claim(claim_id: UUID, db: DB, user: User, chain_id: int | None = Query(default=None, ge=1)):
+    service = ClaimReservationService(db)
+    return serialize(await service.submit(str(claim_id), user.id, chain_id))
+
+
+@router.post("/claim-reservations/{claim_id}/confirm")
+async def confirm_claim(claim_id: UUID, body: ClaimConfirmCreate, db: DB, user: User):
+    if not get_settings().web3_claim_enabled:
+        raise APIError(409, "WEB3_UNAVAILABLE", "On-chain claim confirmation is not enabled yet.")
+    service = ClaimReservationService(db)
+    return serialize(await service.confirm(str(claim_id), user.id, body.chain_id, body.tx_hash))
+
+
+@router.post("/claim-reservations/{claim_id}/release")
+async def release_claim(claim_id: UUID, db: DB, user: User):
+    service = ClaimReservationService(db)
+    return serialize(await service.release(str(claim_id), user.id))
+
+
+@router.post("/claim-reservations/{claim_id}/fail")
+async def fail_claim(claim_id: UUID, db: DB, user: User):
+    service = ClaimReservationService(db)
+    return serialize(await service.fail(str(claim_id), user.id))
+
+
+@router.post("/claim-reservations/{claim_id}/retry")
+async def retry_claim(claim_id: UUID, db: DB, user: User):
+    service = ClaimReservationService(db)
+    return serialize(await service.reserve_after_failure(str(claim_id), user.id))
+
+
+@router.get("/claim-reservations")
+async def list_claims(db: DB, user: User, page: Page = 1, page_size: PageSize = 20, state: str | None = None):
+    query = select(ClaimReservation).where(ClaimReservation.user_id == user.id)
+    if state:
+        query = query.where(ClaimReservation.state == state)
+    return await paginate(db, query.order_by(ClaimReservation.created_at.desc()), page, page_size)
+
+
+# ---- Phase 5: web3 economy (EIP-712 claims, stakes, transactions) ----
+
+
+@router.get("/web3/status")
+async def web3_status(db: DB, user: User):
+    return await Web3EconomyService(db).status()
+
+
+@router.post("/web3/claims/prepare", status_code=201)
+async def web3_claim_prepare(body: Web3ClaimPrepareCreate, db: DB, user: User):
+    service = Web3EconomyService(db)
+    try:
+        return await service.prepare_claim(
+            reward_id=str(body.reward_id),
+            user_id=user.id,
+            wallet_address=body.wallet_address,
+            chain_id=body.chain_id,
+        )
+    except Web3ConfigError as exc:
+        raise exc
+
+
+@router.post("/web3/claims/confirm")
+async def web3_claim_confirm(body: Web3ClaimConfirmCreate, db: DB, user: User):
+    service = Web3EconomyService(db)
+    return await service.confirm_claim(
+        claim_id=body.claim_id,
+        user_id=user.id,
+        tx_hash=body.tx_hash,
+        chain_id=body.chain_id,
+    )
+
+
+@router.get("/web3/claims")
+async def web3_list_claims(db: DB, user: User, page: Page = 1, page_size: PageSize = 20):
+    query = select(ClaimReservation).where(
+        ClaimReservation.user_id == user.id,
+        ClaimReservation.claim_id.is_not(None),
+    )
+    return await paginate(db, query.order_by(ClaimReservation.created_at.desc()), page, page_size)
+
+
+@router.get("/web3/claims/{claim_id}")
+async def web3_get_claim(claim_id: str, db: DB, user: User):
+    if not claim_id.startswith("0x") or len(claim_id) != 66:
+        raise APIError(422, "INVALID_CLAIM_ID", "Claim id must be a 32-byte hex string.")
+    claim = await db.scalar(
+        select(ClaimReservation).where(
+            ClaimReservation.claim_id == claim_id.lower(),
+            ClaimReservation.user_id == user.id,
+        )
+    )
+    if claim is None:
+        raise APIError(404, "CLAIM_NOT_FOUND", "Claim not found.")
+    return serialize(claim)
+
+
+@router.post("/web3/stakes/confirm")
+async def web3_stake_confirm(body: Web3StakeCreate, db: DB, user: User):
+    service = Web3EconomyService(db)
+    return await service.record_stake(
+        contribution_id=body.contribution_id,
+        user_id=user.id,
+        wallet_address=body.wallet_address,
+        tx_hash=body.tx_hash,
+        chain_id=body.chain_id,
+    )
+
+
+@router.post("/web3/stakes/{contribution_id}/release")
+async def web3_stake_release(contribution_id: str, body: Web3StakeSettleCreate, db: DB, user: User):
+    service = Web3EconomyService(db)
+    return await service.confirm_stake_settlement(
+        contribution_id=contribution_id,
+        user_id=user.id,
+        tx_hash=body.tx_hash,
+        kind="release",
+        chain_id=body.chain_id,
+    )
+
+
+@router.post("/web3/stakes/{contribution_id}/slash")
+async def web3_stake_slash(contribution_id: str, body: Web3StakeSettleCreate, db: DB, user: User):
+    service = Web3EconomyService(db)
+    return await service.confirm_stake_settlement(
+        contribution_id=contribution_id,
+        user_id=user.id,
+        tx_hash=body.tx_hash,
+        kind="slash",
+        chain_id=body.chain_id,
+    )
+
+
+@router.get("/web3/transactions")
+async def web3_transactions(db: DB, user: User, page: Page = 1, page_size: PageSize = 20):
+    return await paginate(db, select(Web3Transaction).where(Web3Transaction.user_id == user.id).order_by(Web3Transaction.created_at.desc()), page, page_size)
+
+
+@router.get("/web3/token")
+async def web3_token(db: DB, user: User):
+    return Web3EconomyService(db).token_config()
+
+
+# ---- Phase 4.5: admin contribution review ----
+
+async def admin_or_staff(user: User):
+    if user.role not in ("admin", "staff"):
+        raise APIError(403, "FORBIDDEN", "Administrator review is required.")
+    return user
+
+
+@router.post("/admin/contributions/{contribution_id}/accept")
+async def admin_accept_contribution(contribution_id: UUID, db: DB, user: Annotated[Profile, Depends(admin_or_staff)]):
+    return serialize(await accept_contribution(db, str(contribution_id), user.id))
+
+
+@router.post("/admin/contributions/{contribution_id}/reject")
+async def admin_reject_contribution(contribution_id: UUID, db: DB, user: Annotated[Profile, Depends(admin_or_staff)]):
+    return serialize(await reject_contribution(db, str(contribution_id), user.id))
 
 
 @router.get("/reputation/me")

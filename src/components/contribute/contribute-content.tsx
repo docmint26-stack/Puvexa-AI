@@ -20,7 +20,9 @@ import { Icon } from "@/components/shared/icon";
 import { TokenBadge } from "@/components/shared/token-badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { PageHeader } from "@/components/shared/page-header";
+import { StakeDialog } from "@/components/web3/stake-dialog";
 import { useContributions } from "@/lib/hooks";
+import { useWeb3Identity } from "@/lib/hooks/web3";
 import { notify } from "@/lib/feedback";
 import type { ContributionTask } from "@/lib/demo/types";
 
@@ -44,10 +46,12 @@ const TYPE_STYLE: Record<string, string> = {
 
 export function ContributeContent() {
   const { tasks, mine, submit } = useContributions();
+  const { demo } = useWeb3Identity();
   const [filter, setFilter] = React.useState<string>("All");
   const [query, setQuery] = React.useState("");
   const [activeTask, setActiveTask] = React.useState<ContributionTask | null>(null);
   const [committing, setCommitting] = React.useState(false);
+  const [stakeTarget, setStakeTarget] = React.useState<{ id: string; title: string; stake: number } | null>(null);
 
   const royalties = mine.reduce((s, c) => s + c.royalty, 0);
   const reuses = mine.reduce((s, c) => s + c.reuseCount, 0);
@@ -74,7 +78,11 @@ export function ContributeContent() {
     });
     setCommitting(false);
     setActiveTask(null);
-    notify.success("Contribution submitted", `Ref #${res.id.slice(-6)} · stake held until verified.`);
+    if (demo) {
+      notify.success("Contribution submitted", `Ref #${res.id.slice(-6)} · stake held until verified.`);
+      return;
+    }
+    setStakeTarget({ id: res.id, title: activeTask.title, stake: activeTask.stake });
   };
 
   return (
@@ -310,6 +318,18 @@ export function ContributeContent() {
           )}
         </DialogContent>
       </Dialog>
+
+      <StakeDialog
+        open={stakeTarget !== null}
+        onOpenChange={(open) => !open && setStakeTarget(null)}
+        contributionId={stakeTarget?.id ?? ""}
+        title={stakeTarget?.title ?? ""}
+        requiredStakeWei={BigInt(Math.round((stakeTarget?.stake ?? 0) * 1e18))}
+        onLocked={() => {
+          setStakeTarget(null);
+          notify.success("Stake locked", "Your stake now backs this contribution until it is verified.");
+        }}
+      />
     </div>
   );
 }

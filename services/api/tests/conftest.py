@@ -42,6 +42,8 @@ TRUNCATE = [
     "case_fix_recommendations",
     "knowledge_attributions",
     "wallet_links",
+    "claim_reservations",
+    "web3_transactions",
     "notifications",
     "reward_ledger",
     "reputation_events",
