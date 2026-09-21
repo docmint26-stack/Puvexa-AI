@@ -493,6 +493,22 @@ export function LandingPage() {
               AI-powered troubleshooting with verified fixes and on-chain knowledge royalties.
             </p>
           </div>
+          <nav aria-labelledby="contact-heading">
+            <h2 id="contact-heading" className="text-sm font-normal uppercase text-muted-foreground">Contact us</h2>
+            <ul className="mt-6 space-y-3">
+              {[
+                { label: "X / Twitter", href: "https://x.com/Puvexa" },
+                { label: "Telegram", href: "https://linktr.ee/puvexa" },
+                { label: "Linktree", href: "https://linktr.ee/puvexa" },
+              ].map((contact) => (
+                <li key={contact.label}>
+                  <a href={contact.href} target="_blank" rel="noopener noreferrer" className="rounded-sm text-base text-foreground transition-colors hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">
+                    {contact.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="ghost" render={<a className="text-muted-foreground" href="https://github.com" target="_blank" rel="noreferrer" />}>
               <GitHubMark className="size-3.5" /> GitHub
