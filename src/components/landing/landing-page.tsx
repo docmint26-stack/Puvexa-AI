@@ -510,7 +510,7 @@ export function LandingPage() {
             </ul>
           </nav>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="ghost" render={<a className="text-muted-foreground" href="https://github.com" target="_blank" rel="noreferrer" />}>
+            <Button size="sm" variant="ghost" render={<a className="text-muted-foreground" href="https://github.com/docmint26-stack/Puvexa-AI" target="_blank" rel="noreferrer" />}>
               <GitHubMark className="size-3.5" /> GitHub
             </Button>
             <Button size="sm" variant="ghost" className="text-muted-foreground">
