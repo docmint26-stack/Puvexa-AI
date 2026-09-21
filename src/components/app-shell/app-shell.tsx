@@ -37,7 +37,7 @@ import { Separator } from "@/components/ui/separator";
 import { Icon } from "@/components/shared/icon";
 import { CommandPalette, CommandTriggerButton } from "@/components/app-shell/command-palette";
 import { ProductTour } from "@/components/product-tour";
-import { WalletPanel } from "@/components/web3/wallet-panel";
+import { WalletConnectButton } from "@/components/web3/connect-wallet-modal";
 import { NetworkBadge } from "@/components/web3/network-badge";
 import { useTheme } from "@/components/providers";
 import { avatarGradient, initialsOf } from "@/lib/format";
@@ -50,8 +50,8 @@ const MOBILE_NAV = [
   { label: "Dashboard", href: "/dashboard", icon: "layout-dashboard" },
   { label: "Diagnose", href: "/diagnose", icon: "stethoscope" },
   { label: "Cases", href: "/cases", icon: "files" },
+  { label: "AI Lab", href: "/lab", icon: "flask-conical" },
   { label: "Rewards", href: "/rewards", icon: "coins" },
-  { label: "Profile", href: "/profile", icon: "user" },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -281,7 +281,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Button>
 
           <div className="hidden md:block">
-            <WalletPanel />
+            <WalletConnectButton />
           </div>
 
           <Button
@@ -495,6 +495,7 @@ function SidebarContent({
         <SidebarLink collapsed={collapsed} label="New Diagnosis" href="/diagnose" icon="stethoscope" pathname={pathname} onNavigate={onNavigate} activeOn="/diagnose" />
         <SidebarLink collapsed={collapsed} label="My Cases" href="/cases" icon="files" pathname={pathname} onNavigate={onNavigate} />
         <SidebarLink collapsed={collapsed} label="Contribute" href="/contribute" icon="sparkles" pathname={pathname} onNavigate={onNavigate} />
+        <SidebarLink collapsed={collapsed} label="AI Lab" href="/lab" icon="flask-conical" pathname={pathname} onNavigate={onNavigate} />
       </nav>
 
       <Separator className="my-4" />

@@ -40,6 +40,14 @@ class Settings(BaseSettings):
         ge=1,
     )
     ai_base_url: str = "https://api.openai.com/v1"
+    gemini_api_key: str = Field(
+        "",
+        validation_alias=AliasChoices("GEMINI_API_KEY", "gemini_api_key"),
+    )
+    gemini_model: str = "gemini-flash-lite-latest"
+    gemini_vision_model: str = "gemini-flash-lite-latest"
+    gemini_embedding_model: str = "gemini-embedding-001"
+    gemini_embedding_version: str = "gemini-mrl-v1"
     ai_timeout_seconds: float = 30.0
     ai_retry_count: int = Field(2, ge=0, le=5)
     ai_max_evidence_chars: int = Field(30000, ge=1)

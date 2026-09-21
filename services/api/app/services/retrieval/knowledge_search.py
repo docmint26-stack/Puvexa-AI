@@ -8,6 +8,8 @@ from typing import Any
 from sqlalchemy import String, bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
+from app.core.exceptions import APIError
 from app.db.models import KnowledgeChunk, KnowledgeDocument
 from app.services.retrieval.embeddings import cosine_similarity
 
@@ -29,6 +31,9 @@ class KnowledgeSearch:
         Uses pgvector's native cosine distance (<=>) when connected to PostgreSQL,
         otherwise falls back to a Python cosine similarity scan (SQLite/tests).
         """
+        expected_dim = get_settings().ai_embedding_dim
+        if len(query_embedding) != expected_dim:
+            raise APIError(502, "EMBEDDING_MISMATCH", f"Query embedding has dimension {len(query_embedding)}, expected {expected_dim}.")
         dialect = getattr(getattr(self.db.bind, "dialect", None), "name", None) if self.db.bind else None
 
         if dialect == "postgresql":

@@ -18,6 +18,14 @@ def test_redact_google_api_key():
     assert "google_api_key" in cats
 
 
+def test_redact_gemini_aq_api_key():
+    raw = "GEMINI_API_KEY=AQ.TEST_ONLY_NOT_A_REAL_KEY_xxxxxxxxxxxxxxxxxxxxxxxx please keep safe."
+    redacted, cats = redact_secrets(raw)
+    assert "TEST_ONLY_NOT_A_REAL_KEY_xxxxxxxxxxxxxxxxxxxxxxxx" not in redacted
+    assert "[REDACTED_API_KEY]" in redacted
+    assert "gemini_aq_api_key" in cats
+
+
 def test_redact_aws_access_key():
     raw = "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"
     redacted, cats = redact_secrets(raw)

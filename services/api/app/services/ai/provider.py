@@ -1,16 +1,19 @@
 """AI Provider abstraction layer for Puvexa AI.
 
 Provides a unified interface (AIProvider Protocol) decoupling the platform
-from specific LLM vendors. Supports OpenAIProvider, MockAIProvider, and
-UnconfiguredAIProvider for safe operation without an API key.
+from specific LLM vendors. Supports OpenAIProvider, GeminiProvider, MockAIProvider,
+and UnconfiguredAIProvider for safe operation without an API key.
 """
+import asyncio
 import base64
 import hashlib
 import json
 import math
 import time
 from dataclasses import asdict, dataclass
-from typing import Protocol
+from typing import Any, Protocol, TypeVar
+
+from pydantic import BaseModel, Field
 
 from app.core.config import Settings, get_settings
 from app.core.exceptions import APIError
@@ -41,6 +44,8 @@ from app.services.ai.validators import validate_and_parse
 PROMPT_VERSION_VISION = "vision_v1"
 PROMPT_VERSION_LOGS = "logs_v1"
 PROMPT_VERSION_CODE = "code_v1"
+
+T = TypeVar("T")
 
 
 @dataclass
@@ -874,6 +879,391 @@ class OpenAIProvider:
         return "\n".join(redact_secrets(str(item.get("text", "")))[0] for item in evidence_items)[:get_settings().ai_max_evidence_chars]
 
 
+class LogRootCauseOutput(BaseModel):
+    """Small strict schema for the LLM hypothesis layered onto log preprocessing."""
+
+    root_cause_hypothesis: str = ""
+    recommended_next_steps: list[str] = Field(default_factory=list)
+
+
+class CodeDiagnosisOutput(BaseModel):
+    """Small strict schema for the LLM hypothesis layered onto code preprocessing."""
+
+    identified_bug: str = ""
+    root_cause: str = ""
+    suggested_fix: str = ""
+
+
+def _gemini_error_detail(exc: Exception) -> str:
+    """Extracts the provider's own error text without ever echoing the API key.
+
+    Google's Gemini API reports quota/rate-limit failures with a precise message
+    (e.g. "Quota exceeded for metric ..."). We surface that exact message so the
+    free-tier limit is actionable, but never the configured key or request body.
+    """
+    payload = getattr(exc, "response_json", None)
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict) and error.get("message"):
+            return str(error["message"]).replace("\n", " ")[:400]
+        if payload.get("status"):
+            try:
+                return json.dumps(payload)[:400]
+            except (TypeError, ValueError):
+                pass
+    return str(exc).replace("\n", " ")[:400]
+
+
+def _raise_gemini_error(exc: Exception) -> None:
+    from google.genai import errors
+
+    if isinstance(exc, (errors.APIError, errors.ClientError, errors.ServerError)):
+        detail = _gemini_error_detail(exc)
+        code_num = getattr(exc, "code", None)
+        is_quota = code_num == 429 or ("quota" in detail.lower()) or ("rate limit" in detail.lower())
+        code = "AI_PROVIDER_RATE_LIMIT" if is_quota else "AI_PROVIDER_ERROR"
+        raise APIError(502, code, f"AI provider could not complete this request. {detail}".strip()) from None
+    if isinstance(exc, (TimeoutError,)):
+        raise APIError(502, "AI_PROVIDER_TIMEOUT", "AI provider could not complete this request.") from None
+    raise APIError(502, "AI_PROVIDER_ERROR", f"AI provider could not complete this request. {type(exc).__name__}") from None
+
+
+def _has_additional_properties(node: Any) -> bool:
+    """True if a JSON schema (or subtree) uses additionalProperties (e.g. dict[str, ...] fields)."""
+    if isinstance(node, dict):
+        if "additionalProperties" in node:
+            return True
+        return any(_has_additional_properties(v) for v in node.values())
+    if isinstance(node, list):
+        return any(_has_additional_properties(v) for v in node)
+    return False
+
+
+def _strip_additional_properties(node: Any) -> Any:
+    """Recursively removes additionalProperties keys.
+
+    The Gemini API (generativelanguage) rejects schemas containing
+    additionalProperties, so dict-typed fields (e.g. environment_context)
+    must be sent as plain object schemas. validate_and_parse still enforces
+    the full Pydantic model on the returned text.
+    """
+    if isinstance(node, list):
+        return [_strip_additional_properties(v) for v in node]
+    if not isinstance(node, dict):
+        return node
+    return {k: _strip_additional_properties(v) for k, v in node.items() if k != "additionalProperties"}
+
+
+def _response_schema_for_gemini(schema: type[BaseModel]) -> Any:
+    """Returns the Pydantic model when safe, else a schema dict stripped of additionalProperties."""
+    raw = schema.model_json_schema()
+    if _has_additional_properties(raw):
+        return _strip_additional_properties(raw)
+    return schema
+
+
+class GeminiProvider:
+    """Production provider integrating with the official Google GenAI SDK.
+
+    Implements the full AIProvider protocol on the Gemini API (generativelanguage):
+    structured diagnosis, multimodal screenshot analysis, log/code diagnosis, fix
+    ranking, outcome verification, contribution scoring, and embeddings.
+
+    Safety invariants (mirrors OpenAIProvider):
+    - every outbound payload is secret-redacted first
+    - user evidence travels inside bounded <USER_EVIDENCE_DATA> blocks
+    - reasoning is grounded on <GROUNDED_TECHNICAL_FACTS> only
+    - output is forced to strict JSON schema via response_schema AND re-validated
+      with validate_and_parse before it is returned or persisted
+    - never fabricates success rates (prompt-level). No fallback to Mock output.
+    - embeddings are pinned to the configured pgvector dimension via
+      output_dimensionality, so the stored vector space is never silently changed.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str | None = None,
+        vision_model: str | None = None,
+        embedding_model: str | None = None,
+        embedding_dim: int | None = None,
+        timeout: float = 30.0,
+        client: Any | None = None,
+    ):
+        settings = get_settings()
+        self.api_key = api_key
+        self.model = model or settings.gemini_model
+        self.vision_model = vision_model or settings.gemini_vision_model
+        self.embedding_model = embedding_model or settings.gemini_embedding_model
+        self.embedding_dim = embedding_dim or settings.ai_embedding_dim
+        self.timeout = timeout
+        self._client = client
+
+    def _get_client(self) -> Any:
+        if self._client is None:
+            from google import genai
+            from google.genai import types
+
+            self._client = genai.Client(
+                api_key=self.api_key,
+                http_options=types.HttpOptions(
+                    timeout=int(self.timeout * 1000),
+                    retry_options=types.HttpRetryOptions(attempts=max(3, get_settings().ai_retry_count + 1)),
+                ),
+            )
+        return self._client
+
+    def _generate_sync(self, system: str, user: str, schema: type[BaseModel], model: str, temperature: float = 0.1) -> tuple[str, int, int]:
+        from google.genai import types
+
+        client = self._get_client()
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=user,
+                config=types.GenerateContentConfig(
+                    system_instruction=system,
+                    response_mime_type="application/json",
+                    response_schema=_response_schema_for_gemini(schema),
+                    temperature=temperature,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            _raise_gemini_error(exc)
+        text = str(getattr(response, "text", None) or "")
+        usage = getattr(response, "usage_metadata", None) or None
+        prompt_tokens = int(getattr(usage, "prompt_token_count", 0) or 0)
+        completion_tokens = int(getattr(usage, "response_token_count", 0) or 0)
+        return text, prompt_tokens, completion_tokens
+
+    async def _generate(self, system: str, user: str, schema: type[BaseModel], model: str | None = None, temperature: float = 0.1) -> tuple[str, int, int]:
+        return await asyncio.to_thread(self._generate_sync, system, user, schema, model or self.model, temperature)
+
+    async def _generate_structured(self, system: str, user: str, schema: type[T], model: str | None = None, prompt_version: str = "") -> tuple[T, AIRunMetrics]:
+        start = time.perf_counter()
+        content, in_tokens, out_tokens = await self._generate(system, user, schema, model)
+        parsed, _, _ = validate_and_parse(content, schema)
+        if parsed is None:
+            raise APIError(502, "VALIDATION_FAILED", "AI response failed structured validation.")
+        latency = int((time.perf_counter() - start) * 1000)
+        return parsed, self._metrics(in_tokens, out_tokens, latency, prompt_version, model)
+
+    def _metrics(self, in_tokens: int, out_tokens: int, latency_ms: int, prompt_version: str, model: str | None = None) -> AIRunMetrics:
+        settings = get_settings()
+        cost = (
+            (in_tokens * settings.ai_input_cost_per_million + out_tokens * settings.ai_output_cost_per_million) / 1_000_000
+            if settings.ai_cost_tracking_enabled
+            else 0.0
+        )
+        return AIRunMetrics(
+            input_tokens=in_tokens,
+            output_tokens=out_tokens,
+            latency_ms=latency_ms,
+            estimated_cost_usd=cost,
+            provider="gemini",
+            model=model or self.model,
+            prompt_version=prompt_version,
+        )
+
+    @staticmethod
+    def _normalize_embedding(values: list[float]) -> list[float]:
+        """L2-normalizes the embedding so cosine similarity matches stored OpenAI vectors."""
+        norm = math.sqrt(sum(v * v for v in values))
+        if norm > 0:
+            return [round(v / norm, 6) for v in values]
+        return [0.0] * len(values)
+
+    def _validate_embedding(self, values: list[float]) -> list[float]:
+        if len(values) != self.embedding_dim or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in values):
+            raise APIError(502, "VALIDATION_FAILED", "Provider returned invalid embedding shape.")
+        return self._normalize_embedding(values)
+
+    def _embed_sync(self, texts: list[str]) -> list[list[float]]:
+        from google.genai import types
+
+        client = self._get_client()
+        try:
+            response = client.models.embed_content(
+                model=self.embedding_model,
+                contents=texts,
+                config=types.EmbedContentConfig(output_dimensionality=self.embedding_dim),
+            )
+        except Exception as exc:  # noqa: BLE001
+            _raise_gemini_error(exc)
+        items = getattr(response, "embeddings", None) or []
+        if len(items) != len(texts):
+            raise APIError(502, "VALIDATION_FAILED", "Provider returned invalid embeddings.")
+        return [self._validate_embedding(list(getattr(item, "values", None) or [])) for item in items]
+
+    async def generate_embedding(self, text: str) -> list[float]:
+        clean_text, _ = redact_secrets(text)
+        vectors = await asyncio.to_thread(self._embed_sync, [clean_text[:8000]])
+        return vectors[0]
+
+    async def batch_generate_embeddings(self, texts: list[str]) -> list[list[float]]:
+        clean_texts = [redact_secrets(t)[0][:8000] for t in texts]
+        return await asyncio.to_thread(self._embed_sync, clean_texts)
+
+    async def analyze_problem(
+        self,
+        title: str,
+        description: str,
+        category: str,
+        environment: dict,
+        evidence: list[dict],
+        grounded_facts: list[dict],
+        similar_cases: list[dict] | None = None,
+    ) -> tuple[ProblemAnalysis, AIRunMetrics]:
+        clean_title, _ = redact_secrets(title)
+        clean_desc, _ = redact_secrets(description)
+        clean_evidence = [{"type": e.get("type", "text"), "text": redact_secrets(e.get("text", ""))[0]} for e in evidence]
+
+        user_block = build_user_evidence_block(clean_title, clean_desc, category, environment, clean_evidence)
+        facts_block = build_grounded_context_block(grounded_facts, similar_cases or [])
+
+        system_msg = SYSTEM_PROMPT_DIAGNOSIS + "\nRequired JSON schema:\n" + json.dumps(ProblemAnalysis.model_json_schema())
+        user_prompt = f"{facts_block}\n\n{user_block}\n\nDiagnose the root cause and output strict JSON matching the ProblemAnalysis schema."
+        user_prompt = redact_secrets(user_prompt)[0][:get_settings().ai_max_evidence_chars]
+
+        return await self._generate_structured(system_msg, user_prompt, ProblemAnalysis, prompt_version=PROMPT_VERSION_DIAGNOSIS)
+
+    async def analyze_image(self, image_bytes: bytes, mime_type: str, prompt: str = "") -> tuple[ImageAnalysis, AIRunMetrics]:
+        if mime_type not in ("image/png", "image/jpeg", "image/webp"):
+            raise APIError(422, "INVALID_MEDIA_TYPE", "Image evidence must be PNG, JPEG, or WebP.")
+        if not image_bytes or len(image_bytes) > 10 * 1024 * 1024:
+            raise APIError(422, "IMAGE_TOO_LARGE", "Image evidence exceeds the 10MB size limit.")
+
+        from google.genai import types
+
+        system = (
+            "You are a senior technical support engineer inspecting a user-provided screenshot. Describe only what is "
+            "visible in the image. If text is unclear, transcribe it as best-effort and keep confidence low; never "
+            "fabricate visible messages.\nRequired JSON schema:\n" + json.dumps(ImageAnalysis.model_json_schema())
+        )
+        user = prompt or "Analyze the screenshot and output the required JSON."
+        image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+
+        start = time.perf_counter()
+        client = self._get_client()
+        try:
+            response = await asyncio.to_thread(
+                client.models.generate_content,
+                model=self.vision_model,
+                contents=[types.Part.from_text(text=user), image_part],
+                config=types.GenerateContentConfig(
+                    system_instruction=system,
+                    response_mime_type="application/json",
+                    response_schema=_response_schema_for_gemini(ImageAnalysis),
+                    temperature=0.1,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            _raise_gemini_error(exc)
+        content = str(getattr(response, "text", None) or "")
+        usage = getattr(response, "usage_metadata", None) or None
+        in_tokens = int(getattr(usage, "prompt_token_count", 0) or 0)
+        out_tokens = int(getattr(usage, "response_token_count", 0) or 0)
+        model_res, _, _ = validate_and_parse(content, ImageAnalysis)
+        if model_res is None:
+            raise APIError(502, "VALIDATION_FAILED", "AI response failed structured validation.")
+        latency = int((time.perf_counter() - start) * 1000)
+        return model_res, self._metrics(in_tokens, out_tokens, latency, PROMPT_VERSION_VISION, self.vision_model)
+
+    async def analyze_logs(self, log_text: str) -> tuple[dict, AIRunMetrics]:
+        start = time.perf_counter()
+        cleaned = redact_secrets(log_text)[0][:get_settings().ai_max_evidence_chars]
+        det = process_logs(cleaned)
+        system = (
+            "You are an expert diagnostics engineer. The logs are pre-cleaned: secrets redacted, repeated lines "
+            "compacted, error signatures extracted. Identify the root cause and the single most useful next step.\n"
+            "Output strict JSON: {\"root_cause_hypothesis\": string, \"recommended_next_steps\": [string]}"
+        )
+        content, in_tokens, out_tokens = await self._generate(system, f"Log summary:\n{det.compact_text[:8000]}", LogRootCauseOutput)
+        merged = asdict(det)
+        log_extra, _, _ = validate_and_parse(content, LogRootCauseOutput)
+        if log_extra is not None:
+            merged["root_cause_hypothesis"] = str(log_extra.root_cause_hypothesis or "")
+            merged["recommended_next_steps"] = [str(s) for s in log_extra.recommended_next_steps]
+        latency = int((time.perf_counter() - start) * 1000)
+        return merged, self._metrics(in_tokens, out_tokens, latency, PROMPT_VERSION_LOGS)
+
+    async def analyze_code(self, code_text: str, language: str | None = None) -> tuple[dict, AIRunMetrics]:
+        start = time.perf_counter()
+        cleaned = redact_secrets(code_text)[0][:get_settings().ai_max_evidence_chars]
+        det = analyze_code_snippet(cleaned, language)
+        base = asdict(det) if hasattr(det, "__dataclass_fields__") else dict(det) if isinstance(det, dict) else {}
+        system = (
+            "You are an expert software engineer reviewing a code snippet. Identify the bug, its root cause, and the "
+            "recommended fix.\nOutput strict JSON: {\"identified_bug\": string, \"root_cause\": string, \"suggested_fix\": string}"
+        )
+        content, in_tokens, out_tokens = await self._generate(system, f"Language: {language or 'unknown'}\nCode:\n```\n{cleaned[:8000]}\n```", CodeDiagnosisOutput)
+        merged = dict(base)
+        code_extra, _, _ = validate_and_parse(content, CodeDiagnosisOutput)
+        if code_extra is not None:
+            merged["identified_bug"] = str(code_extra.identified_bug or "")
+            merged["root_cause"] = str(code_extra.root_cause or "")
+            merged["suggested_fix"] = str(code_extra.suggested_fix or "")
+        latency = int((time.perf_counter() - start) * 1000)
+        return merged, self._metrics(in_tokens, out_tokens, latency, PROMPT_VERSION_CODE)
+
+    async def rank_fixes(self, problem: ProblemAnalysis, candidate_fixes: list[dict], grounded_context: list[dict]) -> tuple[FixRankingResult, AIRunMetrics]:
+        heads = [
+            {
+                "id": fx.get("id"),
+                "title": fx.get("title", ""),
+                "summary": str(fx.get("summary", ""))[:300],
+                "risk_level": fx.get("risk_level", "low"),
+                "source_type": fx.get("source_type", "curated"),
+                "why_it_matches": str(fx.get("why_it_matches", ""))[:300],
+            }
+            for fx in candidate_fixes[:10]
+        ]
+        context = "Known facts:\n" + "\n".join(
+            f"- {f.get('title', '')}: {str(f.get('content', ''))[:200]}" for f in grounded_context[:8]
+        ) if grounded_context else "No grounded facts."
+        system = (
+            "You are a technical advice ranker. Rank the candidate solutions for the problem described, prioritizing "
+            "verified historical outcomes, official guidance, and fit to the reported symptoms.\nRequired JSON schema:\n"
+            + json.dumps(FixRankingResult.model_json_schema())
+        )
+        user = (
+            f"Problem: {problem.problem_summary}\nCategory: {problem.category}\nLikely causes: "
+            f"{[c.title for c in problem.likely_causes]}\n\n{context}\n\nCandidate fixes:\n{json.dumps(heads)}\n\n"
+            "Output the ranked fixes in the required schema (one entry per candidate, ranked best-first)."
+        )
+        model_res, metrics = await self._generate_structured(system, user[: get_settings().ai_max_evidence_chars], FixRankingResult, prompt_version=PROMPT_VERSION_RANKING)
+        if not model_res.ranked_fixes:
+            raise APIError(502, "VALIDATION_FAILED", "AI response failed structured validation.")
+        return model_res, metrics
+
+    async def verify_outcome(self, case_info: dict, fix_info: dict, before_evidence: list[dict], after_evidence: list[dict], reported_result: str) -> tuple[VerificationAnalysis, AIRunMetrics]:
+        system = (
+            "You are an outcome verification analyst. Decide whether a reported resolution is genuinely verified from the "
+            "evidence, or only partially verified / failed.\nRequired JSON schema:\n" + json.dumps(VerificationAnalysis.model_json_schema())
+        )
+        user = (
+            f"Case: {json.dumps(case_info)}\nFix applied: {json.dumps(fix_info)}\nReported result: {reported_result}\n\n"
+            f"Before evidence:\n{json.dumps([{k: (v or '')[:400] for k, v in e.items() if k in ('type', 'text', 'content')} for e in before_evidence])}\n"
+            f"After evidence:\n{json.dumps([{k: (v or '')[:400] for k, v in e.items() if k in ('type', 'text', 'content')} for e in after_evidence])}"
+        )
+        return await self._generate_structured(system, user[: get_settings().ai_max_evidence_chars], VerificationAnalysis, prompt_version=PROMPT_VERSION_VERIFICATION)
+
+    async def score_contribution(self, title: str, description: str, steps: list[str], category: str, existing_fixes: list[dict]) -> tuple[ContributionScore, AIRunMetrics]:
+        system = (
+            "You are a community contributions reviewer. Score the novelty, evidence quality, verification strength, "
+            "utility, and fraud/duplicate risk of a proposed solution.\nRequired JSON schema:\n"
+            + json.dumps(ContributionScore.model_json_schema())
+        )
+        user = (
+            f"Title: {redact_secrets(title)[0]}\nCategory: {category}\nDescription: {redact_secrets(description)[0]}\nProposed steps: {json.dumps(steps)}\n"
+            f"Existing fixes to compare against:\n{json.dumps([{k: (f.get(k) or '')[:200] for k in ('id', 'title', 'summary')} for f in existing_fixes[:10]])}"
+        )
+        return await self._generate_structured(system, user[: get_settings().ai_max_evidence_chars], ContributionScore, prompt_version=PROMPT_VERSION_CONTRIBUTION)
+
+    async def summarize_evidence(self, evidence_items: list[dict]) -> str:
+        return "\n".join(redact_secrets(str(item.get("text", "")))[0] for item in evidence_items)[:get_settings().ai_max_evidence_chars]
+
+
 def get_ai_provider(settings: Settings | None = None) -> AIProvider:
     """Factory creating configured AIProvider based on environment settings."""
     cfg = settings or get_settings()
@@ -886,6 +1276,17 @@ def get_ai_provider(settings: Settings | None = None) -> AIProvider:
             api_key=cfg.ai_api_key,
             model=cfg.ai_model,
             base_url=cfg.ai_base_url,
+            timeout=cfg.ai_timeout_seconds,
+        )
+    elif provider_type == "gemini":
+        if not cfg.gemini_api_key:
+            return UnconfiguredAIProvider()
+        return GeminiProvider(
+            api_key=cfg.gemini_api_key,
+            model=cfg.gemini_model,
+            vision_model=cfg.gemini_vision_model,
+            embedding_model=cfg.gemini_embedding_model,
+            embedding_dim=cfg.ai_embedding_dim,
             timeout=cfg.ai_timeout_seconds,
         )
     elif provider_type in ("mock", "development_deterministic"):

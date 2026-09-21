@@ -9,7 +9,7 @@ Two sections:
        error-signature extraction, no secrets in the structured summary
      These are real verifications that always execute in this script.
 
-  B. Live provider gates (require AI_PROVIDER + AI_API_KEY in env):
+  B. Live provider gates (require AI_PROVIDER + provider API key in env):
      real text diagnosis, screenshot diagnosis, log/code diagnosis, embeddings,
      fix ranking, outcome verification, contribution scoring.
      Never falls back to Mock/Deterministic providers in staging: if the env
@@ -58,13 +58,14 @@ LOG_FIXTURE = "\n".join(
 
 
 def fake_screenshot_png() -> bytes:
-    """Builds a small, valid, real PNG (text "hydration mismatch error") in memory."""
-    raw = b"hydration mismatch error: next.js timestamp render\nserver vs client"
-    height = width = 64
+    """Builds a valid, real PNG (text "hydration mismatch error") in memory, large enough for Gemini vision."""
+    raw = b"hydration mismatch error: next.js timestamp render server vs client 500"
+    height = width = 256
     def chunk(tag: bytes, data: bytes) -> bytes:
         c = tag + data
         return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
-    rows = b"".join(b"\x00" + raw[:width] + b"\x00" * (width * 3 - min(len(raw), width) * 3) for _ in range(height))
+    row_data = (raw * (width * 3 // len(raw) + 1))[: width * 3]
+    rows = b"".join(b"\x00" + row_data for _ in range(height))
     ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
     return (
         b"\x89PNG\r\n\x1a\n"
@@ -94,20 +95,20 @@ async def section_a() -> None:
 
 
 async def section_b() -> None:
+    from app.services.ai.provider import UnconfiguredAIProvider, get_ai_provider  # noqa: PLC0415
+
     s = get_settings()
     provider = (s.ai_provider or "unconfigured").lower()
     if provider in ("mock", "development_deterministic") and s.app_env != "development":
         for name in ("text diagnosis", "screenshot diagnosis", "log/code diagnosis", "embeddings", "fix ranking", "outcome verification", "contribution scoring"):
             report(name, False, f"MOCK_PROVIDER_FORBIDDEN_IN_{s.app_env.upper()}")
         return
-    if provider != "openai" or not s.ai_api_key:
+
+    p = get_ai_provider(s)
+    if isinstance(p, UnconfiguredAIProvider):
         for name in ("text diagnosis", "screenshot diagnosis", "log/code diagnosis", "embeddings", "fix ranking", "outcome verification", "contribution scoring"):
             report(name, False, "NO_API_KEY")
         return
-
-    from app.services.ai.provider import OpenAIProvider  # noqa: PLC0415
-
-    p = OpenAIProvider(api_key=s.ai_api_key, model=s.ai_model, base_url=s.ai_base_url, timeout=s.ai_timeout_seconds)
 
     async def run(name: str, coro, want: bool = True):
         try:

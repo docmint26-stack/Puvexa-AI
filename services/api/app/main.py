@@ -142,7 +142,11 @@ async def ready():
 
     checks["auth"] = "configured" if settings.supabase_url else "not_configured"
     checks["storage"] = "configured" if (settings.supabase_url and settings.supabase_storage_bucket_evidence) else "not_configured"
-    ai_has_key = settings.ai_provider != "unconfigured" and (settings.ai_provider == "mock" or bool(settings.ai_api_key))
+    ai_has_key = settings.ai_provider not in ("", "unconfigured") and (
+        settings.ai_provider in ("mock", "development_deterministic")
+        or (settings.ai_provider == "openai" and bool(settings.ai_api_key))
+        or (settings.ai_provider == "gemini" and bool(settings.gemini_api_key))
+    )
     checks["ai_provider"] = "configured" if ai_has_key else "not_configured"
 
     checks["chain"] = "disabled"

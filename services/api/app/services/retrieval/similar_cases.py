@@ -9,6 +9,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
+from app.core.exceptions import APIError
 from app.db.models import Fix, OutcomeIntelligence
 from app.services.retrieval.embeddings import cosine_similarity
 
@@ -28,6 +30,9 @@ class SimilarCaseRetriever:
         min_score: float = 0.30,
     ) -> list[dict[str, Any]]:
         """Retrieves normalized, anonymized outcome intelligence matching the context."""
+        expected_dim = get_settings().ai_embedding_dim
+        if len(query_embedding) != expected_dim:
+            raise APIError(502, "EMBEDDING_MISMATCH", f"Query embedding has dimension {len(query_embedding)}, expected {expected_dim}.")
         stmt = select(OutcomeIntelligence, Fix).join(Fix, OutcomeIntelligence.fix_id == Fix.id)
 
         rows = (await self.db.execute(stmt)).all()

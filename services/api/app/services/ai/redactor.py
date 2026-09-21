@@ -24,6 +24,12 @@ PATTERNS = [
         re.compile(r"\b(AIza[0-9A-Za-z\-_]{35})\b"),
         "[REDACTED_API_KEY]",
     ),
+    # 3b. Gemini API keys (new AI Studio format: AQ.<40+ base64url chars>)
+    (
+        "gemini_aq_api_key",
+        re.compile(r"\b(AQ\.[0-9A-Za-z\-_]{20,})\b"),
+        "[REDACTED_API_KEY]",
+    ),
     # 4. AWS Access Key IDs
     (
         "aws_access_key",

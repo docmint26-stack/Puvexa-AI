@@ -14,7 +14,7 @@ import { Icon } from "@/components/shared/icon";
 import { GitHubMark } from "@/components/shared/github-mark";
 import { AnimatedCounter, RotatingWords, Reveal } from "@/components/shared/motion";
 import { TokenBadge } from "@/components/shared/token-badge";
-import { StatusBadge } from "@/components/shared/status-badge";
+import { LiveDiagnosisPanel } from "@/components/diagnose/live-diagnosis-panel";
 import { landingStats, howItWorksSteps, features, testimonials, tokenEconomy, heroRotating } from "@/lib/data";
 import { avatarGradient } from "@/lib/format";
 
@@ -175,53 +175,8 @@ export function LandingPage() {
           className="relative mx-auto mt-14 max-w-3xl"
         >
           <div className="pointer-events-none absolute -inset-px rounded-2xl bg-linear-to-b from-primary/20 to-cyan-400/10 opacity-70 blur-md" />
-          <div className="relative rounded-2xl border border-border/70 bg-card/80 p-5 shadow-2xl shadow-black/30 backdrop-blur-xl">
-            <div className="flex items-center justify-between border-b border-border/60 pb-3">
-              <div className="flex items-center gap-2">
-                <span className="grid size-7 place-items-center rounded-lg bg-primary/15 text-primary">
-                  <Icon name="stethoscope" className="size-3.5" />
-                </span>
-                <div>
-                  <p className="text-xs font-semibold text-foreground">Live diagnosis</p>
-                  <p className="text-[10px] text-muted-foreground">Windows 11 · onboard WLAN · battery</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="flex items-center gap-1 rounded-full border border-success/25 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
-                  <span className="size-1.5 animate-pulse rounded-full bg-success" /> 3 signatures matched
-                </span>
-                <TokenBadge value={70} signed />
-              </div>
-            </div>
-            <div className="mt-3 space-y-2">
-              {[
-                { title: "Disable Wi-Fi power-saving on battery", meta: "92% success · 1,280 cases · ~4 min", top: true },
-                { title: "Update the WLAN driver", meta: "88% success · 1,093 cases · ~8 min", top: false },
-                { title: "Reset TCP/IP & renew DHCP lease", meta: "84% success · 854 cases · ~6 min", top: false },
-              ].map((f) => (
-                <div
-                  key={f.title}
-                  className={cn(
-                    "flex items-center gap-3 rounded-xl border p-3.5",
-                    f.top ? "border-primary/30 bg-primary/5" : "border-border/60 bg-muted/20"
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "grid size-7 shrink-0 place-items-center rounded-lg font-heading text-xs font-bold",
-                      f.top ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
-                    )}
-                  >
-                    {f.top ? "#1" : "#2"}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-semibold text-foreground">{f.title}</p>
-                    <p className="text-[10px] text-muted-foreground">{f.meta}</p>
-                  </div>
-                  {f.top && <StatusBadge status="Verified" className="hidden sm:inline-flex" />}
-                </div>
-              ))}
-            </div>
+          <div className="relative rounded-2xl border border-border/70 bg-card/80 p-2 shadow-2xl shadow-black/30 backdrop-blur-xl">
+            <LiveDiagnosisPanel context="Windows 11 · onboard WLAN · battery" matchedSignatures={3} reward={70} />
           </div>
         </motion.div>
       </section>

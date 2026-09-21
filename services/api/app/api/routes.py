@@ -246,6 +246,7 @@ async def diagnose(case_id: UUID, db: DB, user: User, background_tasks: Backgrou
     is_unconfigured = (
         settings.ai_provider == "unconfigured"
         or (settings.ai_provider == "openai" and not settings.ai_api_key)
+        or (settings.ai_provider == "gemini" and not settings.gemini_api_key)
     )
     is_development = settings.app_env == "development" and settings.ai_provider == "development_deterministic"
 
