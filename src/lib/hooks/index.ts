@@ -17,6 +17,12 @@ import { useNotificationStore } from "@/lib/state/notifications";
 import { useLeaderboardStore } from "@/lib/state/leaderboard";
 import { useTourStore } from "@/lib/state/ui";
 import {
+  useGuestStore,
+  useIsGuest,
+} from "@/lib/state/guest";
+export { useProductMode, useIsGuest, isGuestActive, guestAiRunsLeft } from "@/lib/state/guest";
+import { guestUserView } from "@/lib/demo/guest";
+import {
   diagnosisService,
   rewardService,
   walletService,
@@ -30,6 +36,46 @@ import type { ContributionService } from "@/lib/services";
 
 export function useCurrentUser(): DemoUser | null {
   return useAuthStore((s) => s.user);
+}
+
+/**
+ * The identity the current session should render: the real account when
+ * authenticated, the preview identity while exploring as a guest, otherwise
+ * null.
+ */
+export function useActiveUser(): DemoUser | null {
+  const user = useAuthStore((s) => s.user);
+  const guest = useIsGuest();
+  return user ?? (guest ? guestUserView : null);
+}
+
+export function useGuestScoreboard() {
+  const points = useGuestStore((s) => s.points);
+  const aiRunsUsed = useGuestStore((s) => s.aiRunsUsed);
+  const tasks = useGuestStore((s) => s.tasks);
+  const stats = useGuestStore((s) => s.stats);
+  const preserved = useGuestStore((s) => s.preserved);
+  return { points, aiRunsUsed, tasksDone: Object.keys(tasks).length, stats, preserved };
+}
+
+export function useGuestActions() {
+  const s = useGuestStore;
+  return {
+    enter: s.getState().enterGuest,
+    leave: s.getState().leaveGuest,
+    addPoints: s.getState().addPoints,
+    useAiRun: s.getState().useAiRun,
+    completeTask: s.getState().completeTask,
+    recordDiagnosis: s.getState().recordDiagnosis,
+    recordVerify: s.getState().recordVerify,
+    recordCaseExplored: s.getState().recordCaseExplored,
+    guestNotify: s.getState().guestNotify,
+    setPendingUpgrade: s.getState().setPendingUpgrade,
+    openAuthGate: s.getState().openAuthGate,
+    closeAuthGate: s.getState().closeAuthGate,
+    transferGuestProgress: s.getState().transferGuestProgress,
+    clearGuestProgress: s.getState().clearGuestProgress,
+  };
 }
 
 export function useIsAuthenticated(): boolean {
@@ -130,13 +176,18 @@ export function useLeaderboard(): LeaderboardEntry[] {
 }
 
 export function useNotifications() {
-  const items = useNotificationStore((s) => s.items);
-  const unread = useNotificationStore((s) => s.items.filter((n) => n.unread).length);
+  const guest = useIsGuest();
+  const guestItems = useGuestStore((s) => s.notifications);
+  const accountItems = useNotificationStore((s) => s.items);
+  const items = guest ? guestItems : accountItems;
+  const unread = items.filter((n) => n.unread).length;
+  const markRead = useGuestStore.getState().markNotificationRead;
+  const markAllRead = useGuestStore.getState().markAllNotificationsRead;
   return {
     items,
     unread,
-    markRead: notificationService.markRead,
-    markAllRead: notificationService.markAllRead,
+    markRead: guest ? markRead : notificationService.markRead,
+    markAllRead: guest ? markAllRead : notificationService.markAllRead,
     push: notificationService.push,
   };
 }

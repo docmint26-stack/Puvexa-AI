@@ -14,6 +14,7 @@ import {
   LogOut,
   Settings,
   User,
+  UserPlus2,
   Plus,
   Sparkles,
   CheckCheck,
@@ -41,7 +42,9 @@ import { WalletConnectButton } from "@/components/web3/connect-wallet-modal";
 import { NetworkBadge } from "@/components/web3/network-badge";
 import { useTheme } from "@/components/providers";
 import { avatarGradient, initialsOf } from "@/lib/format";
-import { useCurrentUser, useNotifications } from "@/lib/hooks";
+import { useActiveUser, useCurrentUser, useGuestScoreboard, useNotifications } from "@/lib/hooks";
+import { useGuestStore, type ProductMode } from "@/lib/state/guest";
+import { GUEST_AI_RUNS_LIMIT, GUEST_PROFILE } from "@/lib/demo/guest";
 import { useRewardStore } from "@/lib/state/rewards";
 import { useAuthActions } from "@/lib/hooks";
 import { notify } from "@/lib/feedback";
@@ -59,6 +62,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { theme, toggleTheme } = useTheme();
   const user = useCurrentUser();
+  const activeUser = useActiveUser();
+  const productMode = useGuestStore((s) => s.mode);
+  const isGuest = productMode === "guest";
+  const { points: guestPoints, aiRunsUsed } = useGuestScoreboard();
+  const openAuthGate = useGuestStore((s) => s.openAuthGate);
   const { logout } = useAuthActions();
   const { items: notifications, unread, markRead, markAllRead } = useNotifications();
   const balance = useRewardStore((s) => s.balance);
@@ -81,7 +89,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const signOut = () => {
     logout();
-    notify.info("Signed out", "See you soon — your demo session was cleared.");
+    notify.info(isGuest ? "Left guest mode" : "Signed out", "See you soon — your demo session was cleared.");
     router.push("/");
   };
 
@@ -95,8 +103,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <SidebarContent
       collapsed={collapsed}
       pathname={pathname}
-      user={user}
+      user={activeUser}
+      mode={productMode}
       claimable={claimable}
+      guestPoints={guestPoints}
+      aiRunsLeft={GUEST_AI_RUNS_LIMIT - aiRunsUsed}
+      onOpenAuthGate={openAuthGate}
       onNavigate={() => setDrawerOpen(false)}
     />
   );
@@ -139,32 +151,64 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
           >
             {!collapsed ? (
-              <>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Icon name="coins" className="size-4 text-cyan-300" />
-                    <span className="text-xs font-medium text-foreground">
-                      {balance.toLocaleString()} FIX
-                    </span>
+              isGuest ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Icon name="sparkles" className="size-4 text-violet-300" />
+                      <span className="text-xs font-medium text-foreground">
+                        {guestPoints} <span className="text-muted-foreground">pts</span>
+                      </span>
+                    </div>
+                    <Badge variant="secondary" className="text-[10px]">Guest preview</Badge>
                   </div>
-                  {claimable > 0 && (
-                    <Badge variant="secondary" className="text-[10px] text-success">
-                      {claimable} claimable
-                    </Badge>
-                  )}
-                </div>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {user ? `Rank #${user.rank || "—"}` : "Not connected"} · Demo / Testnet
-                </p>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="mt-2 w-full"
-                  onClick={() => router.push("/rewards")}
-                >
-                  Claim rewards
-                </Button>
-              </>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Not FIX · {GUEST_AI_RUNS_LIMIT - aiRunsUsed} AI runs left
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="mt-2 w-full"
+                    onClick={() => openAuthGate("Create an account to keep your guest points unlocked.")}
+                  >
+                    <UserPlus2 className="size-3.5" /> Create account
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Icon name="coins" className="size-4 text-cyan-300" />
+                      <span className="text-xs font-medium text-foreground">
+                        {balance.toLocaleString()} FIX
+                      </span>
+                    </div>
+                    {claimable > 0 && (
+                      <Badge variant="secondary" className="text-[10px] text-success">
+                        {claimable} claimable
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {user ? `Rank #${user.rank || "—"}` : "Not connected"} · Demo / Testnet
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="mt-2 w-full"
+                    onClick={() => router.push("/rewards")}
+                  >
+                    Claim rewards
+                  </Button>
+                </>
+              )
+            ) : isGuest ? (
+              <div className="flex flex-col items-center gap-2">
+                <Icon name="sparkles" className="size-5 text-violet-300" />
+                <span className="text-[10px] font-semibold text-foreground">
+                  {guestPoints} pts
+                </span>
+              </div>
             ) : (
               <div className="flex flex-col items-center gap-2">
                 <Icon name="coins" className="size-5 text-cyan-300" />
@@ -219,15 +263,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <SidebarContent
                   collapsed={false}
                   pathname={pathname}
-                  user={user}
+                  user={activeUser}
+                  mode={productMode}
                   claimable={claimable}
+                  guestPoints={guestPoints}
+                  aiRunsLeft={GUEST_AI_RUNS_LIMIT - aiRunsUsed}
+                  onOpenAuthGate={openAuthGate}
                   onNavigate={() => setDrawerOpen(false)}
                 />
               </div>
               <div className="border-t border-border/70 p-3">
-                <Button size="sm" variant="secondary" className="w-full" onClick={() => router.push("/rewards")}>
-                  <Icon name="coins" className="size-3.5" /> {balance.toLocaleString()} FIX · Claimable {claimable}
-                </Button>
+                {isGuest ? (
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-2 text-xs font-medium text-foreground">
+                      <Icon name="sparkles" className="size-3.5 text-violet-300" />
+                      {guestPoints} Guest Points · preview
+                    </span>
+                    <Button size="sm" variant="secondary" onClick={() => openAuthGate()}>
+                      <UserPlus2 className="size-3.5" /> Account
+                    </Button>
+                  </div>
+                ) : (
+                  <Button size="sm" variant="secondary" className="w-full" onClick={() => router.push("/rewards")}>
+                    <Icon name="coins" className="size-3.5" /> {balance.toLocaleString()} FIX · Claimable {claimable}
+                  </Button>
+                )}
               </div>
             </motion.aside>
           </>
@@ -281,8 +341,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Button>
 
           <div className="hidden md:block">
-            <WalletConnectButton />
+            {isGuest ? (
+              <span className="flex items-center gap-1.5 rounded-full border border-violet-400/25 bg-violet-400/10 px-2.5 py-1 text-[11px] font-medium text-violet-200">
+                <Icon name="sparkles" className="size-3" />
+                {guestPoints} pts · GUEST
+              </span>
+            ) : (
+              <WalletConnectButton />
+            )}
           </div>
+
+          {isGuest && (
+            <Button size="sm" className="hidden sm:inline-flex" onClick={() => openAuthGate()}>
+              <UserPlus2 className="size-4" />
+              Sign Up
+            </Button>
+          )}
 
           <Button
             size="icon"
@@ -366,19 +440,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button size="icon" variant="ghost" className="rounded-full" />}>
               <Avatar size="default" className="size-8">
-                <AvatarFallback className={cn("bg-linear-to-br text-white", avatarGradient(user?.handle ?? "a"))}>
-                  {user ? initialsOf(user.name) : "?"}
+                <AvatarFallback className={cn("bg-linear-to-br text-white", avatarGradient(activeUser?.handle ?? "a"))}>
+                  {activeUser ? initialsOf(activeUser.name) : "?"}
                 </AvatarFallback>
               </Avatar>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" sideOffset={8} className="w-56">
               <DropdownMenuLabel>
-                {user && (
+                {activeUser && (
                   <>
-                    <p className="text-sm font-semibold text-foreground">{user.name}</p>
-                    <p className="text-xs font-normal text-muted-foreground">{user.handle}</p>
+                    <p className="text-sm font-semibold text-foreground">
+                      {activeUser.name}
+                      {isGuest && (
+                        <Badge variant="secondary" className="ml-1.5 align-middle text-[9px]">
+                          {GUEST_PROFILE.badgeLabel}
+                        </Badge>
+                      )}
+                    </p>
+                    <p className="text-xs font-normal text-muted-foreground">{activeUser.handle}</p>
                     <p className="mt-1 text-[10px] font-normal text-muted-foreground/80">
-                      {user.level} · {user.reputation.toLocaleString()} reputation
+                      {isGuest
+                        ? `${activeUser.level} · ${guestPoints} Guest Points preview`
+                        : `${activeUser.level} · ${activeUser.reputation.toLocaleString()} reputation`}
                     </p>
                   </>
                 )}
@@ -387,7 +470,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <DropdownMenuGroup>
                 <DropdownMenuItem onClick={() => router.push("/profile")}>
                   <User className="size-4" />
-                  Profile
+                  {isGuest ? "Guest Dashboard" : "Profile"}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => router.push("/rewards")}>
                   <Sparkles className="size-4" />
@@ -397,11 +480,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <Settings className="size-4" />
                   Settings
                 </DropdownMenuItem>
+                {isGuest && (
+                  <DropdownMenuItem onClick={() => openAuthGate()}>
+                    <UserPlus2 className="size-4" />
+                    Create account
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={signOut}>
                 <LogOut className="size-4" />
-                Sign out
+                {isGuest ? "Leave guest mode" : "Sign out"}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -456,15 +545,24 @@ function SidebarContent({
   collapsed,
   pathname,
   user,
+  mode,
   claimable,
+  guestPoints,
+  aiRunsLeft,
+  onOpenAuthGate,
   onNavigate,
 }: {
   collapsed: boolean;
   pathname: string;
   user: ReturnType<typeof useCurrentUser>;
+  mode: ProductMode;
   claimable: number;
+  guestPoints: number;
+  aiRunsLeft: number;
+  onOpenAuthGate: (message?: string) => void;
   onNavigate: () => void;
 }) {
+  const isGuest = mode === "guest";
   return (
     <>
       <nav className="space-y-1">
@@ -518,9 +616,12 @@ function SidebarContent({
       <nav className="space-y-1">
         <SidebarLink collapsed={collapsed} label="Profile" href="/profile" icon="user" pathname={pathname} onNavigate={onNavigate} />
         <SidebarLink collapsed={collapsed} label="Settings" href="/settings" icon="settings" pathname={pathname} onNavigate={onNavigate} />
+        {isGuest && (
+          <SidebarLink collapsed={collapsed} label="How Puvexa Works" href="/how-it-works" icon="play" pathname={pathname} onNavigate={onNavigate} />
+        )}
       </nav>
 
-      {claimable > 0 && !collapsed && (
+      {!isGuest && claimable > 0 && !collapsed && (
         <div className="mt-4 rounded-xl border border-success/20 bg-success/5 p-3">
           <div className="flex items-center gap-2">
             <Icon name="wallet" className="size-4 text-success" />
@@ -528,6 +629,28 @@ function SidebarContent({
           </div>
           <p className="mt-1 text-[11px] text-muted-foreground">
             {user ? `${user.name.split(" ")[0]}'s` : "Your"} verified rewards unlocked.
+          </p>
+        </div>
+      )}
+
+      {isGuest && !collapsed && (
+        <div className="mt-4 rounded-xl border border-violet-400/20 bg-violet-400/5 p-3">
+          <div className="flex items-center gap-2">
+            <Icon name="sparkles" className="size-4 text-violet-300" />
+            <p className="text-xs font-medium text-foreground">{guestPoints} Guest Points</p>
+          </div>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {aiRunsLeft} of {GUEST_AI_RUNS_LIMIT} AI Lab runs left · your journey is saved locally.
+          </p>
+          <Button
+            size="sm"
+            className="mt-2 w-full"
+            onClick={() => onOpenAuthGate("Create an account to keep your progress and start earning real FIX.")}
+          >
+            <UserPlus2 className="size-3.5" /> Save progress
+          </Button>
+          <p className="mt-2 text-[10px] text-muted-foreground/70">
+            Guest Points are a preview only — they are not FIX and can&apos;t be claimed.
           </p>
         </div>
       )}

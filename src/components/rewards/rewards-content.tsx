@@ -42,9 +42,11 @@ import { NetworkBadge } from "@/components/web3/network-badge";
 import { ClaimFlowDialog, type ClaimableReward } from "@/components/web3/claim-flow-dialog";
 import { OnChainHistory } from "@/components/web3/onchain-history";
 import { useRewards, useWallet } from "@/lib/hooks";
+import { useGuestStore } from "@/lib/state/guest";
 import { useWeb3Identity } from "@/lib/hooks/web3";
 import { notify } from "@/lib/feedback";
 import type { RewardItem } from "@/lib/demo/types";
+import { GuestRewardsContent } from "@/components/rewards/guest-rewards-content";
 
 const TYPE_STYLE: Partial<Record<RewardItem["type"], string>> = {
   "Verified Outcome": "border-success/25 bg-success/10 text-success",
@@ -75,6 +77,8 @@ export function RewardsContent() {
     if (demo) return [];
     return history.filter((r) => r.status === "unlocked" && r.id).map((r) => ({ id: r.id, amount: r.amount }));
   }, [demo, history]);
+
+  if (useGuestStore.getState().mode === "guest") return <GuestRewardsContent />;
 
   const onClaim = () => {
     if (claimable <= 0) return;

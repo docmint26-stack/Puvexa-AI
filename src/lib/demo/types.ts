@@ -139,6 +139,8 @@ export interface DemoUser {
   rank: number;
   avatarInitials: string;
   isDemo: boolean;
+  /** Optional short subtitle rendered under the profile name (e.g. guest preview). */
+  tagline?: string;
 }
 
 export type RewardNowType =

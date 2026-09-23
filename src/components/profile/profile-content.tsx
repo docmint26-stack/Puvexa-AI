@@ -24,6 +24,8 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { PageHeader } from "@/components/shared/page-header";
 import { useCurrentUser, useRewards, useLeaderboard, useWallet, useContributions } from "@/lib/hooks";
 import { useRouter } from "next/navigation";
+import { useGuestStore } from "@/lib/state/guest";
+import { GuestProfileContent } from "@/components/profile/guest-profile-content";
 import { avatarGradient, initialsOf } from "@/lib/format";
 import { Reveal } from "@/components/shared/motion";
 
@@ -41,6 +43,8 @@ export function ProfileContent() {
   const { state: wallet } = useWallet();
   const { mine } = useContributions();
   const router = useRouter();
+
+  if (useGuestStore.getState().mode === "guest") return <GuestProfileContent />;
 
   if (!user) {
     return (

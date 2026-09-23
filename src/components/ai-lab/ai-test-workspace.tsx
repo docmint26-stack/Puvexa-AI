@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { motion } from "framer-motion";
-import { Plus, MessageSquareText, Sparkles } from "lucide-react";
+import { Plus, MessageSquareText, Sparkles, UserPlus2, Lock } from "lucide-react";
+import { cn } from "cn";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +20,8 @@ import { FileUploadZone } from "./file-upload-zone";
 import { AiActionToolbar, MatchedSignaturesChip } from "./ai-action-toolbar";
 import { AiOutputPanel } from "./ai-output-panel";
 import { AiCreationLabTabs } from "./ai-creation-lab";
+import { useGuestStore } from "@/lib/state/guest";
+import { GUEST_AI_RUNS_LIMIT } from "@/lib/demo/guest";
 import {
   buildOutput,
   DEMO_FILES,
@@ -42,6 +45,14 @@ export function AiTestWorkspace() {
   const [files, setFiles] = React.useState<AiFile[]>([]);
   const [running, setRunning] = React.useState<AiToolId | null>(null);
   const [output, setOutput] = React.useState<AiOutput | null>(null);
+
+  const isGuest = useGuestStore((s) => s.mode === "guest");
+  const aiRunsUsed = useGuestStore((s) => s.aiRunsUsed);
+  const consumeAiRun = useGuestStore((s) => s.useAiRun);
+  const openAuthGate = useGuestStore((s) => s.openAuthGate);
+
+  const runsLeft = Math.max(0, GUEST_AI_RUNS_LIMIT - aiRunsUsed);
+  const guestQuotaExhausted = isGuest && runsLeft <= 0;
 
   const readyFiles = files.filter((f) => f.status === "ready");
   const matchedSignatures = readyFiles.some((f) => f.kind === "log") ? 3 : readyFiles.some((f) => f.kind === "image") ? 2 : readyFiles.length > 0 ? 1 : 0;
@@ -69,6 +80,14 @@ export function AiTestWorkspace() {
 
   const run = (tool: AiToolId) => {
     if (running) return;
+    if (isGuest) {
+      if (!consumeAiRun()) {
+        openAuthGate(
+          "You've used all 3 free AI runs. Create an account to keep diagnosing with the full quota."
+        );
+        return;
+      }
+    }
     setRunning(tool);
     setOutput(null);
     const input: AiRunInput = { title, description, category, environment, tags, files: readyFiles };
@@ -98,11 +117,37 @@ export function AiTestWorkspace() {
         </div>
         <div className="flex items-center gap-2">
           <MatchedSignaturesChip count={matchedSignatures} />
-          <Badge variant="outline" className="gap-1 border-primary/30 bg-primary/5 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary">
-            <span className="size-1.5 animate-pulse rounded-full bg-primary" /> Demo
+          <Badge
+            variant="outline"
+            className={cn(
+              "gap-1 border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider",
+              isGuest
+                ? "border-violet-400/30 bg-violet-400/10 text-violet-300"
+                : "border-primary/30 bg-primary/5 text-primary"
+            )}
+          >
+            <span className={cn("size-1.5 animate-pulse rounded-full", isGuest ? "bg-violet-300" : "bg-primary")} />
+            {isGuest ? "Guest · " + runsLeft + " run" + (runsLeft === 1 ? "" : "s") + " left" : "Demo"}
           </Badge>
         </div>
       </div>
+
+      {guestQuotaExhausted && (
+        <div className="flex flex-col items-start gap-3 rounded-2xl border border-warning/25 bg-warning/5 p-4 sm:flex-row sm:items-center">
+          <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-warning/30 bg-warning/10 text-warning">
+            <Lock className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground">You&apos;ve used your {GUEST_AI_RUNS_LIMIT} free AI runs</p>
+            <p className="text-[11px] text-muted-foreground">
+              Create a free account to keep diagnosing with your full quota and real FIX earning.
+            </p>
+          </div>
+          <Button size="sm" className="shrink-0" onClick={() => openAuthGate("Create an account to refill your AI run quota.")}>
+            <UserPlus2 className="size-3.5" /> Create account
+          </Button>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-4">

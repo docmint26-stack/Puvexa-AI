@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowRight, Check, ExternalLink, FileText, Menu, X } from "lucide-react";
 import * as React from "react";
@@ -15,18 +16,30 @@ import { GitHubMark } from "@/components/shared/github-mark";
 import { AnimatedCounter, RotatingWords, Reveal } from "@/components/shared/motion";
 import { TokenBadge } from "@/components/shared/token-badge";
 import { LiveDiagnosisPanel } from "@/components/diagnose/live-diagnosis-panel";
+import { LeaderboardContent } from "@/components/leaderboard/leaderboard-content";
+import { useGuestStore } from "@/lib/state/guest";
+import { notify } from "@/lib/feedback";
 import { landingStats, howItWorksSteps, features, testimonials, tokenEconomy, heroRotating } from "@/lib/data";
 import { avatarGradient } from "@/lib/format";
 
 const NAV_LINKS = [
-  { label: "How it works", href: "#how-it-works" },
+  { label: "Workflow", href: "#how-it-works" },
   { label: "Features", href: "#features" },
+  { label: "Leaderboard", href: "#leaderboard" },
   { label: "Token", href: "#token" },
   { label: "Faq", href: "#faq" },
 ];
 
 export function LandingPage() {
   const [menuOpen, setMenuOpen] = React.useState(false);
+  const router = useRouter();
+  const enterGuest = useGuestStore((s) => s.enterGuest);
+
+  const tryAsGuest = () => {
+    enterGuest();
+    notify.success("Welcome, guest", "Preview Puvexa with 3 free AI runs — no account needed.");
+    router.push("/dashboard");
+  };
 
   return (
     <div className="relative min-h-dvh overflow-x-clip bg-background">
@@ -50,8 +63,8 @@ export function LandingPage() {
             ))}
           </div>
           <div className="hidden items-center gap-2 md:flex">
-            <Button variant="ghost" size="sm" render={<Link href="/demo" />}>
-              Live demo
+            <Button variant="ghost" size="sm" render={<Link href="/how-it-works" />}>
+              Workflow
             </Button>
             <Button variant="ghost" size="sm" render={<Link href="/login" />}>
               Sign in
@@ -73,8 +86,8 @@ export function LandingPage() {
                 </a>
               ))}
               <div className="mt-2 flex gap-2">
-                <Button variant="ghost" className="flex-1" render={<Link href="/demo" />}>
-                  Live demo
+                <Button variant="ghost" className="flex-1" render={<Link href="/how-it-works" />}>
+                  Workflow
                 </Button>
                 <Button variant="ghost" className="flex-1" render={<Link href="/login" />}>
                   Sign in
@@ -142,13 +155,19 @@ export function LandingPage() {
             transition={{ delay: 0.15 }}
             className="mt-8 flex flex-wrap items-center justify-center gap-3"
           >
-            <Button size="lg" className="h-11 px-5" render={<Link href="/demo" />}>
-              Try the live demo <ArrowRight className="size-4" />
+            <Button size="lg" className="h-11 px-5" onClick={tryAsGuest}>
+              Try Puvexa <ArrowRight className="size-4" />
             </Button>
-            <Button size="lg" variant="secondary" className="h-11 px-5" render={<Link href="/signup" />}>
-              <Icon name="sparkles" className="size-4" /> Create free account
+            <Button size="lg" variant="secondary" className="h-11 px-5" render={<Link href="/how-it-works" />}>
+              Workflow
+            </Button>
+            <Button size="sm" variant="ghost" className="h-11 px-3 text-muted-foreground" render={<Link href="/signup" />}>
+              Create a free account
             </Button>
           </motion.div>
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            Try instantly as a guest — no account, 3 free AI Lab runs.
+          </p>
 
           <motion.div
             initial={{ opacity: 0 }}
@@ -225,10 +244,14 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* How it works */}
+      <section id="leaderboard" className="relative mx-auto max-w-4xl scroll-mt-24 px-4 py-16 sm:px-6">
+        <LeaderboardContent />
+      </section>
+
+      {/* Workflow */}
       <section id="how-it-works" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-20 sm:px-6">
         <div className="text-center">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">How it works</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">Workflow</p>
           <h2 className="mt-2 font-heading text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
             From symptom to verified fix
           </h2>
@@ -417,8 +440,8 @@ export function LandingPage() {
               <Button size="lg" className="h-11 px-6" render={<Link href="/signup" />}>
                 Create free account <ArrowRight className="size-4" />
               </Button>
-              <Button size="lg" variant="secondary" className="h-11 px-6" render={<Link href="/demo" />}>
-                <Icon name="sparkles" className="size-4" /> Explore the live demo
+              <Button size="lg" variant="secondary" className="h-11 px-6" render={<Link href="/how-it-works" />}>
+                <Icon name="sparkles" className="size-4" /> Watch How Puvexa Works
               </Button>
             </div>
           </div>

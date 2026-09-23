@@ -25,6 +25,7 @@ import { useRewardStore } from "@/lib/state/rewards";
 import { useWalletStore } from "@/lib/state/wallet";
 import { useNotificationStore } from "@/lib/state/notifications";
 import { useLeaderboardStore } from "@/lib/state/leaderboard";
+import { isGuestActive, useGuestStore } from "@/lib/state/guest";
 import { uid } from "@/lib/state/storage";
 import { notify } from "@/lib/feedback";
 import type {
@@ -41,13 +42,18 @@ import type {
 } from "./types";
 
 export class DemoAuthService implements AuthService {
-  login(email: string, password: string): Promise<AuthResult> {
-    return useAuthStore.getState().login(email, password);
+  async login(email: string, password: string): Promise<AuthResult> {
+    const res = await useAuthStore.getState().login(email, password);
+    if (res.ok) useGuestStore.getState().markAuthenticated();
+    return res;
   }
-  signup(data: { name: string; email: string; username: string; password: string }): Promise<AuthResult> {
-    return useAuthStore.getState().signup(data);
+  async signup(data: { name: string; email: string; username: string; password: string }): Promise<AuthResult> {
+    const res = await useAuthStore.getState().signup(data);
+    if (res.ok) useGuestStore.getState().markAuthenticated();
+    return res;
   }
   logout(): void {
+    useGuestStore.getState().leaveGuest();
     useAuthStore.getState().logout();
   }
   getUser(): DemoUser | null {
@@ -76,6 +82,18 @@ export class DemoDiagnosisService implements DiagnosisService {
   async startDiagnosis(input: DiagnosisInput): Promise<AppCase> {
     const analysis = this.analyze(input);
     const c = useCaseStore.getState().createDiagnosis(input, analysis);
+    if (isGuestActive()) {
+      const guest = useGuestStore.getState();
+      guest.guestNotify(
+        "Diagnosis ready",
+        `Ranked fixes are ready for "${input.title}".`,
+        "case",
+        `/diagnose/${c.id}`
+      );
+      guest.recordDiagnosis(10);
+      guest.recordKnowledgeImpact(1);
+      return c;
+    }
     useNotificationStore.getState().push(
       "Diagnosis ready",
       `Ranked fixes are ready for "${input.title}".`,
@@ -121,7 +139,20 @@ export class DemoCaseService implements CaseService {
   finalizeVerification(id: string): AppCase | undefined {
     const c = useCaseStore.getState().completeVerification(id);
     if (c) {
-      rewardSvc.unlockCaseReward(id);
+      if (isGuestActive()) {
+        // Guest sessions never touch real FIX — they accrue preview points only.
+        const guest = useGuestStore.getState();
+        guest.recordVerify(20);
+        guest.guestNotify(
+          "Demo outcome verified",
+          "Your demo outcome passed. +20 Guest Points (preview only — not FIX).",
+          "reward",
+          "/rewards"
+        );
+        notify.success("Demo outcome verified", "+20 Guest Points added (preview).");
+      } else {
+        rewardSvc.unlockCaseReward(id);
+      }
     }
     return c;
   }
@@ -153,14 +184,17 @@ export class DemoRewardService implements RewardService {
     return useRewardStore.getState().transactions;
   }
   claim(): { claimed: number; balanceAfter: number; txId: string } {
+    if (isGuestActive()) return { claimed: 0, balanceAfter: 0, txId: uid("tx") };
     const res = useRewardStore.getState().claim();
     const tx = useRewardStore.getState().transactions[0];
     return { claimed: res.claimed, balanceAfter: res.balanceAfter, txId: tx?.id ?? uid("tx") };
   }
   confirmClaim(txId: string): void {
+    if (isGuestActive()) return;
     useRewardStore.getState().confirmClaim(txId);
   }
   unlockCaseReward(caseId: string): void {
+    if (isGuestActive()) return;
     const c = useCaseStore.getState().cases.find((x) => x.id === caseId);
     if (!c) return;
     useRewardStore.getState().addEarned({
@@ -185,9 +219,11 @@ export class DemoRewardService implements RewardService {
     notify.success("Reward unlocked", `+${c.reward} FIX added to claimable.`);
   }
   stake(amount: number): void {
+    if (isGuestActive()) return;
     useRewardStore.getState().stake(amount);
   }
   unstake(amount: number): void {
+    if (isGuestActive()) return;
     useRewardStore.getState().unstake(amount);
   }
 }
@@ -227,6 +263,19 @@ export class DemoContributionService implements ContributionService {
     stake: number;
   }): Promise<{ id: string }> {
     await delay(1400);
+
+    // Guests may browse and preview contributions, but never submit real ones:
+    // no stake is moved, no profile is patched, nothing touches the economy.
+    if (isGuestActive()) {
+      useGuestStore.getState().guestNotify(
+        "Contribution preview saved",
+        `"${payload.title}" was previewed. Create an account to submit it for verification.`,
+        "case",
+        "/signup?next=/contribute"
+      );
+      return { id: "guest-preview" };
+    }
+
     const id = uid("con");
     useNotificationStore.getState().push(
       "Contribution submitted",

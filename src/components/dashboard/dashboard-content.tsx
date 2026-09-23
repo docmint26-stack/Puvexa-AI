@@ -18,8 +18,10 @@ import { PageHeader } from "@/components/shared/page-header";
 import { InsightCard } from "@/components/dashboard/insight-card";
 import { kpis, nextActions } from "@/lib/data";
 import { useCurrentUser, useCases, useRewards, useLeaderboard, useContributions } from "@/lib/hooks";
+import { useGuestStore } from "@/lib/state/guest";
 import { stagger, fadeUp } from "@/lib/motion";
 import { avatarGradient } from "@/lib/format";
+import { GuestDashboardContent } from "@/components/dashboard/guest-dashboard-content";
 
 const KPI_ACCENTS: Record<string, string> = {
   "circle-check": "text-success bg-success/10 border-success/20",
@@ -38,9 +40,6 @@ export function DashboardContent() {
   const topContributors = leaderboard.slice(0, 5);
   const { mine: myContributions } = useContributions();
 
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-
   const kpiValues = React.useMemo(
     () =>
       kpis.map((k) => {
@@ -52,6 +51,11 @@ export function DashboardContent() {
       }),
     [rewards.balance, rewards.claimable, user?.casesResolved, user?.contributions]
   );
+
+  if (useGuestStore.getState().mode === "guest") return <GuestDashboardContent />;
+
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
   return (
     <div className="space-y-8">

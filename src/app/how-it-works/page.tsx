@@ -3,7 +3,7 @@ import { Icon } from "@/components/shared/icon";
 import { Badge } from "@/components/ui/badge";
 import { howItWorksSteps, landingStats } from "@/lib/demo/marketing";
 
-export default function DemoPage() {
+export default function HowItWorksPage() {
   return (
     <div className="space-y-10">
       <div className="text-center">
@@ -11,11 +11,11 @@ export default function DemoPage() {
           Interactive walkthrough
         </Badge>
         <h1 className="mx-auto mt-4 max-w-3xl font-heading text-3xl font-semibold tracking-tight text-foreground sm:text-5xl">
-          Watch Puvexa fix a real problem — live
+          How Puvexa works
         </h1>
         <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-          Follow an 8-stage walkthrough as Puvexa diagnoses a hydration bug, ranks the fixes,
-          verifies the outcome, and rewards the knowledge. Everything below runs in your browser.
+          Follow an 8-stage walkthrough as Puvexa diagnoses a sample bug, ranks verified fixes, checks the outcome, and
+          rewards the knowledge. Everything below runs in your browser.
         </p>
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {landingStats.map((s) => (
@@ -42,7 +42,7 @@ export default function DemoPage() {
             </span>
             <p className="mt-3 text-sm font-semibold text-foreground">{s.title}</p>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.description}</p>
-            {i === 0 && <Badge className="absolute bottom-3 right-3 text-[9px]">you are here →</Badge>}
+            {i === 0 && <Badge className="absolute bottom-3 right-3 text-[9px]">start here →</Badge>}
           </div>
         ))}
       </section>
@@ -50,14 +50,15 @@ export default function DemoPage() {
       <div className="rounded-2xl border border-dashed border-border bg-muted/20 p-5 text-center">
         <p className="text-sm font-medium text-foreground">Ready to try it with your own problem?</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Sign in with the demo account to run diagnoses, earn and claim FIX, and explore the full product.
+          Preview the whole product as a guest — no account, 3 free AI runs — or open the demo account to earn and claim
+          FIX.
         </p>
         <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
           <a
-            href="/login?next=/diagnose"
+            href="/login"
             className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
           >
-            Open the demo account
+            Continue as Guest
           </a>
           <a
             href="/rewards"

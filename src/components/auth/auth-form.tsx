@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2, Wand2 } from "lucide-react";
+import { Loader2, Sparkles, Wand2 } from "lucide-react";
 import { cn } from "cn";
 
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,9 @@ import { Separator } from "@/components/ui/separator";
 import { Icon } from "@/components/shared/icon";
 import { GitHubMark } from "@/components/shared/github-mark";
 import { useAuthActions } from "@/lib/hooks";
+import { useGuestStore } from "@/lib/state/guest";
+import { useAuthProviders } from "@/lib/hooks/use-auth-providers";
+import { isSupabaseConfigured, signInWithProvider } from "@/lib/api/supabase";
 import { DEMO_CREDENTIALS, DEMO_MODE } from "@/lib/demo/users";
 import { notify } from "@/lib/feedback";
 
@@ -38,6 +41,40 @@ export function AuthForm({ mode }: { mode: "login" | "signup" | "forgot" }) {
   const isLogin = mode === "login";
   const isSignup = mode === "signup";
   const isForgot = mode === "forgot";
+
+  const { settings, loading: settingsLoading } = useAuthProviders();
+  const [busy, setBusy] = React.useState<"google" | "github" | null>(null);
+
+  const canStart = !DEMO_MODE && isSupabaseConfigured();
+  const googleAvailable = settings?.google === true;
+  const githubAvailable = settings?.github === true;
+  const googleDisabled = !canStart || !googleAvailable || settingsLoading || busy === "github";
+  const githubDisabled = !canStart || !githubAvailable || settingsLoading || busy === "google";
+
+  const startOAuth = async (provider: "google" | "github") => {
+    if (settings?.google !== true && provider === "google") {
+      setError("Google sign-in is not enabled in this environment.");
+      return;
+    }
+    if (settings?.github !== true && provider === "github") {
+      setError("GitHub sign-in is not enabled in this environment.");
+      return;
+    }
+    setError("");
+    setBusy(provider);
+    const { url, error } = await signInWithProvider(provider, `${window.location.origin}/auth/callback`);
+    if (error) {
+      setError(error);
+      setBusy(null);
+      return;
+    }
+    if (!url) {
+      setError("Could not reach the sign-in provider. Please try again.");
+      setBusy(null);
+      return;
+    }
+    window.location.assign(url);
+  };
 
   const fillDemo = () => {
     setEmail(DEMO_CREDENTIALS.email);
@@ -132,14 +169,48 @@ export function AuthForm({ mode }: { mode: "login" | "signup" | "forgot" }) {
           {!isForgot && (
             <>
               <div className="grid grid-cols-2 gap-2.5">
-                <Button type="button" variant="outline" className="w-full" onClick={() => setError("Social sign-in is disabled in demo mode.")}>
-                  <span className="flex items-center gap-2">
-                    <span className="grid size-4 place-items-center rounded-full bg-linear-to-br from-red-400 to-blue-500 text-[9px] font-bold text-white">G</span>
-                    Google
-                  </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  disabled={googleDisabled}
+                  onClick={() => {
+                    if (!canStart || !googleAvailable) {
+                      setError("Google sign-in is not enabled in this environment.");
+                      return;
+                    }
+                    void startOAuth("google");
+                  }}
+                >
+                  {busy === "google" ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <span className="flex items-center gap-2">
+                      <span className="grid size-4 place-items-center rounded-full bg-linear-to-br from-red-400 to-blue-500 text-[9px] font-bold text-white">G</span>
+                      Google
+                    </span>
+                  )}
                 </Button>
-                <Button type="button" variant="outline" className="w-full" onClick={() => setError("Social sign-in is disabled in demo mode.")}>
-                  <GitHubMark className="size-4" /> GitHub
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  disabled={githubDisabled}
+                  onClick={() => {
+                    if (!canStart || !githubAvailable) {
+                      setError("GitHub sign-in is not enabled in this environment.");
+                      return;
+                    }
+                    void startOAuth("github");
+                  }}
+                >
+                  {busy === "github" ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <>
+                      <GitHubMark className="size-4" /> GitHub
+                    </>
+                  )}
                 </Button>
               </div>
               <div className="flex items-center gap-3">
@@ -238,6 +309,36 @@ export function AuthForm({ mode }: { mode: "login" | "signup" | "forgot" }) {
               <Icon name="shield-check" className="size-3.5 shrink-0 text-success" />
               Password never leaves your device — wallets remain self-custodied.
             </p>
+          )}
+
+          {!isForgot && (
+            <>
+              <div className="flex items-center gap-3">
+                <Separator className="flex-1" />
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">or explore</span>
+                <Separator className="flex-1" />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                className="w-full"
+                onClick={() => {
+                  useGuestStore.getState().enterGuest();
+                  notify.success("Welcome, guest", "Preview Puvexa with 3 free AI runs — no account needed.");
+                  router.replace(safeNext() ?? "/dashboard");
+                }}
+              >
+                <Sparkles className="size-4 text-violet-500" />
+                Continue as Guest
+                <span className="ml-auto rounded-full border border-border/70 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
+                  no account
+                </span>
+              </Button>
+              <p className="text-center text-[10px] text-muted-foreground">
+                Guest exploring is local &amp; free. Guest Points are a preview only — they are not FIX.
+              </p>
+            </>
           )}
         </CardContent>
 

@@ -80,6 +80,26 @@ function upsertCase(apiCase: ApiCaseDetail): AppCase {
 /* Auth                                                                */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Promotes the current Supabase session into the app: loads the API profile
+ * (auto-creating the application profile row on first contact), stats, and
+ * hydrates the workspace. Used after email/password and social sign-ins.
+ */
+export async function establishApiSession(): Promise<AuthResult> {
+  try {
+    const sessionUser = await getSessionUser();
+    const token = await currentToken();
+    const profile = await apiGet<ApiProfile>("/api/v1/auth/me", token);
+    const stats = await apiGet<ApiProfileStats>("/api/v1/profile/stats", token);
+    const user: DemoUser = { ...mapProfile(profile, stats), email: sessionUser?.email ?? "" };
+    useAuthStore.setState({ user, loginAt: Date.now() });
+    void hydrateWorkspace(token);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof ApiError ? err.message : "Sign in failed. Please try again." };
+  }
+}
+
 export class ApiAuthService implements AuthService {
   async login(email: string, password: string): Promise<AuthResult> {
     const { error } = await signInWithPassword(email, password);
@@ -138,18 +158,7 @@ export class ApiAuthService implements AuthService {
   }
 
   private async establishSession(): Promise<AuthResult> {
-    try {
-      const sessionUser = await getSessionUser();
-      const token = await currentToken();
-      const profile = await apiGet<ApiProfile>("/api/v1/auth/me", token);
-      const stats = await apiGet<ApiProfileStats>("/api/v1/profile/stats", token);
-      const user: DemoUser = { ...mapProfile(profile, stats), email: sessionUser?.email ?? "" };
-      useAuthStore.setState({ user, loginAt: Date.now() });
-      void hydrateWorkspace(token);
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err instanceof ApiError ? err.message : "Sign in failed. Please try again." };
-    }
+    return establishApiSession();
   }
 }
 

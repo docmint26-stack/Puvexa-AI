@@ -8,7 +8,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuthActions } from "@/lib/hooks";
-import { applyRecoverySession } from "@/lib/api/supabase";
+import { applyRecoveryCode, applyRecoverySession } from "@/lib/api/supabase";
 import { notify } from "@/lib/feedback";
 
 const inputClass =
@@ -28,7 +28,9 @@ export default function ResetPasswordPage() {
   React.useEffect(() => {
     void (async () => {
       if (typeof window === "undefined") return;
-      const { error } = await applyRecoverySession(window.location.hash);
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get("code");
+      const { error } = code ? await applyRecoveryCode(code) : await applyRecoverySession(window.location.hash);
       if (error) {
         setState("error");
         setStateError(error);

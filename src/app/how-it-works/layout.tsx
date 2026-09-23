@@ -4,7 +4,7 @@ import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
-export default function DemoLayout({ children }: { children: React.ReactNode }) {
+export default function HowItWorksLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="relative min-h-dvh bg-background">
       <div className="pointer-events-none fixed inset-0 bg-grid-faint opacity-60" />
@@ -15,12 +15,12 @@ export default function DemoLayout({ children }: { children: React.ReactNode }) 
           <Link href="/">
             <Logo size="sm" />
           </Link>
-          <Badge variant="outline" className="hidden gap-1 border-cyan-400/30 bg-cyan-400/10 px-2 text-[10px] text-cyan-300 sm:inline-flex">
-            <span className="size-1.5 animate-pulse rounded-full bg-cyan-300" /> DEMO / TESTNET
+          <Badge variant="outline" className="hidden gap-1 border-primary/30 bg-primary/10 px-2 text-[10px] text-primary sm:inline-flex">
+            WORKFLOW
           </Badge>
           <div className="flex-1" />
           <Button size="sm" variant="ghost" render={<Link href="/" />}>
-            <Home className="size-4" /> Exit demo
+            <Home className="size-4" /> Back home
           </Button>
           <Button size="sm" render={<Link href="/login" />}>
             Sign in <LogIn className="size-4" />
@@ -31,7 +31,7 @@ export default function DemoLayout({ children }: { children: React.ReactNode }) 
       <main className="relative mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">{children}</main>
 
       <footer className="mx-auto max-w-6xl px-4 pb-10 pt-4 text-center text-[11px] text-muted-foreground sm:px-6">
-        Interactive product demo · all data is simulated locally in your browser · no real blockchain
+        Interactive walkthrough · all data is simulated locally in your browser · no real blockchain
       </footer>
     </div>
   );

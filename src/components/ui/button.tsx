@@ -39,16 +39,26 @@ const buttonVariants = cva(
   }
 )
 
+function isNativeRender(render: ButtonPrimitive.Props["render"]): boolean {
+  if (!render) return true;
+  // A custom render target (e.g. <Link> or <a>) is not a native <button>.
+  if (typeof render === "function") return true;
+  return render.type === "button";
+}
+
 function Button({
   className,
   variant = "default",
   size = "default",
+  render,
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
   return (
     <ButtonPrimitive
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
+      nativeButton={isNativeRender(render)}
+      render={render}
       {...props}
     />
   )

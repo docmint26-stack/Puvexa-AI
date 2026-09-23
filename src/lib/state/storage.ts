@@ -9,6 +9,7 @@ export const PERSIST_KEYS = {
   notifications: "puvexa:notifications",
   leaderboard: "puvexa:leaderboard",
   tour: "puvexa:tour",
+  guest: "puvexa:guest",
 } as const;
 
 /** SSR-safe localStorage wrapper for zustand persist. */

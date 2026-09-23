@@ -23,6 +23,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { StakeDialog } from "@/components/web3/stake-dialog";
 import { useContributions } from "@/lib/hooks";
 import { useWeb3Identity } from "@/lib/hooks/web3";
+import { useGuestStore } from "@/lib/state/guest";
 import { notify } from "@/lib/feedback";
 import type { ContributionTask } from "@/lib/demo/types";
 
@@ -47,6 +48,8 @@ const TYPE_STYLE: Record<string, string> = {
 export function ContributeContent() {
   const { tasks, mine, submit } = useContributions();
   const { demo } = useWeb3Identity();
+  const isGuest = useGuestStore((s) => s.mode === "guest");
+  const openAuthGate = useGuestStore((s) => s.openAuthGate);
   const [filter, setFilter] = React.useState<string>("All");
   const [query, setQuery] = React.useState("");
   const [activeTask, setActiveTask] = React.useState<ContributionTask | null>(null);
@@ -67,6 +70,13 @@ export function ContributeContent() {
 
   const onCommit = async () => {
     if (!activeTask) return;
+    if (isGuest) {
+      setActiveTask(null);
+      openAuthGate(
+        "Create an account to contribute. Committing moves a real FIX stake, which a guest session is not allowed to do."
+      );
+      return;
+    }
     setCommitting(true);
     const res = await submit({
       type: activeTask.type,

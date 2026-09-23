@@ -19,6 +19,8 @@ import { useCaseStore } from "@/lib/state/cases";
 import { useRewardStore } from "@/lib/state/rewards";
 import { useWalletStore } from "@/lib/state/wallet";
 import { useNotificationStore } from "@/lib/state/notifications";
+import { useGuestStore } from "@/lib/state/guest";
+import { GUEST_POINTS_SEED } from "@/lib/demo/guest";
 import type { DiagnosisInput } from "@/lib/demo/types";
 
 const baseInput: DiagnosisInput = {
@@ -38,6 +40,7 @@ beforeEach(() => {
   useRewardStore.setState({ ...seedSnapshot, history: seedHistory, transactions: seedTxs });
   useWalletStore.getState().disconnect();
   useNotificationStore.setState({ items: [] });
+  useGuestStore.getState().resetGuest();
 });
 
 describe("auth service", () => {
@@ -177,5 +180,88 @@ describe("contribution service", () => {
 
     expect(res.id).toBeTruthy();
     expect(authService.getUser()?.contributions).toBe(before + 1);
+  });
+});
+
+describe("guest mode guards", () => {
+  it("runs a diagnosis as a guest: guest points accrue, real notifications do not", async () => {
+    useGuestStore.getState().enterGuest();
+    await diagnosisService.startDiagnosis(baseInput);
+
+    const guest = useGuestStore.getState();
+    expect(guest.points).toBe(GUEST_POINTS_SEED + 10);
+    expect(guest.stats.diagnoses).toBe(9);
+    expect(guest.notifications.length).toBeGreaterThan(0);
+    expect(useNotificationStore.getState().items).toHaveLength(0);
+  });
+
+  it("verifying a demo outcome as a guest grants preview points, never FIX", async () => {
+    useGuestStore.getState().enterGuest();
+    const c = await diagnosisService.startDiagnosis(baseInput);
+    caseService.applyFix(c.id, c.fixes[0].id);
+    caseService.submitOutcome(c.id, "resolved");
+    const claimableBefore = useRewardStore.getState().claimable;
+    caseService.finalizeVerification(c.id);
+
+    const guest = useGuestStore.getState();
+    expect(guest.stats.verifiedOutcomes).toBe(5);
+    expect(guest.points).toBe(GUEST_POINTS_SEED + 10 + 20);
+    expect(useRewardStore.getState().claimable).toBe(claimableBefore);
+  });
+
+  it("claiming as a guest is a no-op with a preview tx id", () => {
+    useGuestStore.getState().enterGuest();
+    const res = rewardService.claim();
+    expect(res).toEqual({ claimed: 0, balanceAfter: 0, txId: expect.any(String) });
+
+    const beforeStatus = rewardService.transactions()[0].status;
+    rewardService.confirmClaim(res.txId);
+    expect(rewardService.transactions()[0].status).toBe(beforeStatus);
+  });
+
+  it("staking as a guest does not move any balance", () => {
+    useGuestStore.getState().enterGuest();
+    const before = rewardService.snapshot();
+    rewardService.stake(10);
+    expect(rewardService.snapshot()).toEqual(before);
+  });
+
+  it("submitting a contribution as a guest only previews it", async () => {
+    useGuestStore.getState().enterGuest();
+    const res = await contributionService.submit({
+      type: "fix",
+      title: "Guest preview fix",
+      description: "Never touches the economy.",
+      steps: [],
+      environment: "guest",
+      stake: 50,
+    });
+
+    expect(res.id).toBe("guest-preview");
+    expect(authService.getUser()).toBeNull();
+    expect(rewardService.snapshot().staked).toBe(20);
+  });
+
+  it("signing up after guest mode prompts to keep progress", async () => {
+    useGuestStore.getState().enterGuest();
+    useGuestStore.getState().recordDiagnosis();
+
+    await authService.signup({
+      name: "Guest Turned Pro",
+      email: "turned@example.com",
+      username: "turnedpro",
+      password: "supersecret",
+    });
+
+    const s = useGuestStore.getState();
+    expect(s.mode).toBe("authenticated");
+    expect(s.pendingUpgrade).toBe(true);
+  });
+
+  it("logging out clears guest mode", async () => {
+    useGuestStore.getState().enterGuest();
+    await authService.login(DEMO_CREDENTIALS.email, DEMO_CREDENTIALS.password);
+    authService.logout();
+    expect(useGuestStore.getState().mode).toBe("anonymous");
   });
 });
