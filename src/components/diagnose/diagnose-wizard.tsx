@@ -69,7 +69,7 @@ function WizardShell({ children, footer }: { children: React.ReactNode; footer: 
   );
 }
 
-export function DiagnoseWizard() {
+export function DiagnoseWizard({ defaults }: { defaults?: Partial<FormValues> }) {
   const router = useRouter();
   const { startDiagnosis } = useDiagnosis();
   const [analyzing, setAnalyzing] = React.useState(false);
@@ -98,6 +98,7 @@ export function DiagnoseWizard() {
       version: "",
       recentChange: "",
       software: "",
+      ...defaults,
     },
   });
 

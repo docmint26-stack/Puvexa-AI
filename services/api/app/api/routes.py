@@ -1,20 +1,22 @@
+import secrets
 from datetime import timedelta
 from decimal import Decimal
 from typing import Annotated, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, UploadFile
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, inspect, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_optional_user
 from app.core.config import get_settings
 from app.core.exceptions import APIError
 from app.db.base import now
 from app.db.models import (
     AccountDeletionRequest,
     AIRun,
+    CampusAmbassadorApplication,
     Case,
     CaseEvidence,
     CaseFixRecommendation,
@@ -40,6 +42,8 @@ from app.schemas.requests import (
     AttemptCreate,
     AttemptPatch,
     AttrCreate,
+    CampusAmbassadorApplicationCreate,
+    CampusAmbassadorApplicationPatch,
     CaseCreate,
     CasePatch,
     ClaimConfirmCreate,
@@ -88,6 +92,19 @@ PageSize = Annotated[int, Query(ge=1, le=100)]
 
 def serialize(obj):
     return jsonable_encoder({c.key: getattr(obj, c.key) for c in inspect(obj).mapper.column_attrs})
+
+
+def serialize_ambassador(row):
+    """Public shape for a campus ambassador application (camelCase, no internal fields)."""
+    return {
+        "id": row.id,
+        "applicationId": row.application_id,
+        "fullName": row.full_name,
+        "email": row.email,
+        "status": row.status,
+        "submittedAt": row.submitted_at.isoformat() if row.submitted_at else None,
+        "lookupToken": row.lookup_token,
+    }
 
 
 async def owned(db, model, identifier, user_id):
@@ -980,3 +997,64 @@ async def request_deletion(body: DeleteAccountRequest, db: DB, user: User):
 @router.get("/dashboard")
 async def dashboard(db: DB, user: User):
     return {"profile": serialize(user), "stats": await profile_stats(db, user), "rewards": await reward_summary(db, user), "recent_cases": await list_cases(db, user, page_size=5), "recent_contributions": await contributions(db, user, page_size=5), "notifications": await notifications(db, user, page_size=5), "leaderboard": await leaderboard(db, user, page_size=5)}
+
+
+@router.post("/programs/campus-ambassador/applications", status_code=201)
+async def create_campus_ambassador_application(body: CampusAmbassadorApplicationCreate, db: DB, user: User | None = Depends(get_optional_user)):
+    email = body.email.strip().lower()
+    existing = await db.scalar(select(CampusAmbassadorApplication).where(CampusAmbassadorApplication.email == email).limit(1))
+    if existing is not None:
+        raise APIError(409, "ALREADY_APPLIED", f"An application already exists for {email}.")
+    if user is not None:
+        owned_row = await db.scalar(select(CampusAmbassadorApplication).where(CampusAmbassadorApplication.user_id == user.id).limit(1))
+        if owned_row is not None:
+            raise APIError(409, "ALREADY_APPLIED", f"You already submitted an application ({owned_row.application_id}).")
+    if not body.consent:
+        raise APIError(422, "CONSENT_REQUIRED", "Consent is required to submit an application.")
+    year = str(now().year)
+    for _ in range(20):
+        application_id = f"AMB-{year}-{secrets.token_hex(3).upper()}"
+        if await db.scalar(select(CampusAmbassadorApplication).where(CampusAmbassadorApplication.application_id == application_id).limit(1)) is None:
+            break
+    else:
+        application_id = f"AMB-{year}-{uuid4().hex[:6].upper()}"
+    values = body.model_dump(mode="json", exclude={"email"})
+    row = CampusAmbassadorApplication(
+        user_id=user.id if user else None,
+        email=email,
+        application_id=application_id,
+        lookup_token=secrets.token_urlsafe(18),
+        **values,
+    )
+    db.add(row)
+    await db.flush()
+    audit(db, user.id if user else None, "ambassador_application_submitted", "campus_ambassador_applications", row.id)
+    return serialize_ambassador(row)
+
+
+@router.get("/programs/campus-ambassador/applications/my-application")
+async def my_campus_ambassador_application(db: DB, user: User):
+    row = await db.scalar(select(CampusAmbassadorApplication).where(CampusAmbassadorApplication.user_id == user.id).order_by(CampusAmbassadorApplication.submitted_at.desc()).limit(1))
+    if row is None:
+        raise APIError(404, "NOT_FOUND", "No application on file.")
+    return serialize_ambassador(row)
+
+
+@router.get("/programs/campus-ambassador/applications/lookup")
+async def campus_ambassador_application_lookup(db: DB, token: Annotated[str, Query(min_length=6, max_length=100)]):
+    row = await db.scalar(select(CampusAmbassadorApplication).where(CampusAmbassadorApplication.lookup_token == token).limit(1))
+    if row is None:
+        raise APIError(404, "NOT_FOUND", "No application matches this token.")
+    return serialize_ambassador(row)
+
+
+@router.patch("/programs/campus-ambassador/applications/my-application")
+async def update_campus_ambassador_application(body: CampusAmbassadorApplicationPatch, db: DB, user: User):
+    row = await db.scalar(select(CampusAmbassadorApplication).where(CampusAmbassadorApplication.user_id == user.id).order_by(CampusAmbassadorApplication.submitted_at.desc()).limit(1))
+    if row is None:
+        raise APIError(404, "NOT_FOUND", "No application on file.")
+    if row.status != "submitted":
+        raise APIError(409, "REVIEW_STARTED", "This application is already being reviewed.")
+    patch(row, body)
+    await db.flush()
+    return serialize_ambassador(row)

@@ -25,9 +25,24 @@ import { useRewardStore } from "@/lib/state/rewards";
 import { useWalletStore } from "@/lib/state/wallet";
 import { useNotificationStore } from "@/lib/state/notifications";
 import { useLeaderboardStore } from "@/lib/state/leaderboard";
-import { isGuestActive, useGuestStore } from "@/lib/state/guest";
+import {
+  isGuestActive,
+  useGuestStore,
+} from "@/lib/state/guest";
 import { uid } from "@/lib/state/storage";
 import { notify } from "@/lib/feedback";
+import {
+  AMBASSADOR_ALREADY_APPLIED,
+  AmbassadorSubmissionError,
+  type AmbassadorApplicationPayload,
+  type AmbassadorService,
+  type CampusAmbassadorApplication,
+} from "@/lib/campus-ambassador/types";
+import {
+  normalizeEmail,
+  readApplications,
+  saveApplications,
+} from "@/lib/campus-ambassador/storage";
 import type {
   AuthResult,
   AuthService,
@@ -327,6 +342,58 @@ export class DemoProfileService implements ProfileService {
   }
 }
 
+export class DemoAmbassadorService implements AmbassadorService {
+  async submitApplication(payload: AmbassadorApplicationPayload): Promise<CampusAmbassadorApplication> {
+    await delay(1400);
+    const email = normalizeEmail(payload.email);
+    const apps = readApplications();
+    const existing = Object.values(apps).find((a) => a.email === email);
+    if (existing) {
+      useGuestStore.getState().guestNotify(
+        "Application already on file",
+        `You already submitted an application (${existing.applicationId}).`,
+        "case",
+        "/programs/campus-ambassador"
+      );
+      throw new AmbassadorSubmissionError(
+        AMBASSADOR_ALREADY_APPLIED,
+        `You already submitted an application for ${payload.email}.`,
+        409,
+        { applicationId: existing.applicationId }
+      );
+    }
+
+    const record: CampusAmbassadorApplication = {
+      id: uid("amb"),
+      applicationId: `AMB-${new Date().getFullYear()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+      fullName: payload.fullName.trim(),
+      email,
+      status: "submitted",
+      submittedAt: new Date().toISOString(),
+      lookupToken: uid("tok"),
+    };
+    saveApplications({ ...apps, [email]: record });
+    useGuestStore.getState().guestNotify(
+      "Campus Ambassador application submitted",
+      `Your application ${record.applicationId} is under review.`,
+      "case",
+      "/programs/campus-ambassador"
+    );
+    return record;
+  }
+
+  async getMyApplication(): Promise<CampusAmbassadorApplication | null> {
+    const user = authSvc.getUser();
+    if (!user?.email) return null;
+    return readApplications()[normalizeEmail(user.email)] ?? null;
+  }
+
+  async getByLookupToken(token: string): Promise<CampusAmbassadorApplication | null> {
+    const apps = readApplications();
+    return Object.values(apps).find((a) => a.lookupToken === token) ?? null;
+  }
+}
+
 export const authSvc: AuthService = new DemoAuthService();
 export const diagnosisSvc: DiagnosisService = new DemoDiagnosisService();
 export const caseSvc: CaseService = new DemoCaseService();
@@ -336,6 +403,7 @@ export const contributionSvc: ContributionService = new DemoContributionService(
 export const leaderboardSvc: LeaderboardService = new DemoLeaderboardService();
 export const notificationSvc: NotificationService = new DemoNotificationService();
 export const profileSvc: ProfileService = new DemoProfileService();
+export const ambassadorSvc: AmbassadorService = new DemoAmbassadorService();
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));

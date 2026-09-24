@@ -12,6 +12,8 @@ export * from "./demo/marketing";
 export * from "./demo/dashboard";
 export * from "./demo/help";
 export * from "./demo/search";
+export * from "./data/top-problems";
+export * from "./data/programs";
 
 export const APP_NAV = [
   { label: "Dashboard", href: "/dashboard", icon: "layout-dashboard" },

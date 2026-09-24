@@ -53,6 +53,7 @@ TRUNCATE = [
     "diagnosis_runs",
     "fixes",
     "cases",
+    "campus_ambassador_applications",
     "user_settings",
     "profiles",
 ]

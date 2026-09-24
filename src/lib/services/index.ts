@@ -10,6 +10,7 @@ import type {
   RewardService,
   WalletService,
 } from "./types";
+import type { AmbassadorService } from "@/lib/campus-ambassador/types";
 import * as demo from "./demo";
 import {
   apiAuthService,
@@ -22,8 +23,10 @@ import {
   apiRewardService,
   apiWalletService,
 } from "@/lib/api/services";
+import { apiAmbassadorService } from "@/lib/api/ambassador";
 
 export * from "./types";
+export * from "@/lib/campus-ambassador/types";
 
 export const isDemoMode = DEMO_MODE;
 
@@ -39,3 +42,4 @@ export const contributionService: ContributionService = isDemoMode ? demo.contri
 export const leaderboardService: LeaderboardService = isDemoMode ? demo.leaderboardSvc : apiLeaderboardService;
 export const notificationService: NotificationService = isDemoMode ? demo.notificationSvc : apiNotificationService;
 export const profileService: ProfileService = isDemoMode ? demo.profileSvc : apiProfileService;
+export const ambassadorService: AmbassadorService = isDemoMode ? demo.ambassadorSvc : apiAmbassadorService;

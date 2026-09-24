@@ -364,6 +364,51 @@ class AIRun(Identity, Base):
     error_code: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
+class CampusAmbassadorApplication(Identity, Updated, Base):
+    """Campus Ambassador program applications.
+
+    Guests may apply (``user_id`` is nullable); authenticated users get their
+    own row back under ``my-application``. ``status`` is server-controlled and
+    never accepted from clients. ``email`` is the deduplication key and is
+    normalized to lowercase by the API.
+    """
+
+    __tablename__ = "campus_ambassador_applications"
+
+    user_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True)
+    status: Mapped[str] = mapped_column(String(255), default="submitted")
+    application_id: Mapped[str] = mapped_column(String(32), unique=True)
+    lookup_token: Mapped[str] = mapped_column(String(64), unique=True)
+    full_name: Mapped[str] = mapped_column(String(120))
+    email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
+    phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    country: Mapped[str] = mapped_column(String(120))
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    institution: Mapped[str] = mapped_column(String(255))
+    program: Mapped[str] = mapped_column(String(255))
+    graduation_year: Mapped[int] = mapped_column(Integer)
+    current_student: Mapped[bool] = mapped_column(Boolean, default=True)
+    club_involvement: Mapped[str | None] = mapped_column(Text, nullable=True)
+    leadership_experience: Mapped[bool] = mapped_column(Boolean, default=False)
+    leadership_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    motivation: Mapped[str] = mapped_column(Text)
+    community_goals: Mapped[str] = mapped_column(Text)
+    github_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    linkedin_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    other_social_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    audience_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    technical_level: Mapped[str] = mapped_column(String(50))
+    skill_tags: Mapped[list] = mapped_column(json_type, default=list)
+    weekly_hours: Mapped[int] = mapped_column(Integer)
+    availability_months: Mapped[int] = mapped_column(Integer)
+    timezone: Mapped[str] = mapped_column(String(120))
+    resources_needed: Mapped[str] = mapped_column(Text)
+    previous_ambassador: Mapped[bool] = mapped_column(Boolean, default=False)
+    previous_ambassador_details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    consent: Mapped[bool] = mapped_column(Boolean, default=False)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
 Index("ix_cases_user_created", Case.user_id, Case.created_at)
 Index("ix_evidence_case", CaseEvidence.case_id)
 Index("ix_diagnoses_case", DiagnosisRun.case_id)
@@ -387,6 +432,7 @@ Index("ix_claim_reward", ClaimReservation.reward_id)
 Index("ix_w3tx_user_created", Web3Transaction.user_id, Web3Transaction.created_at)
 Index("ix_w3tx_tx_hash", Web3Transaction.tx_hash)
 Index("ix_w3tx_claim", Web3Transaction.claim_id)
+Index("ix_campus_amb_user_created", CampusAmbassadorApplication.user_id, CampusAmbassadorApplication.submitted_at)
 Case.__table__.append_constraint(UniqueConstraint("id", "user_id"))
 CaseFixRecommendation.__table__.append_constraint(UniqueConstraint("case_id", "fix_id"))
 RewardLedger.__table__.append_constraint(CheckConstraint("amount >= 0", name="nonnegative_amount"))

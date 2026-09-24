@@ -17,6 +17,7 @@ EXPECTED_TABLES = [
     "knowledge_attributions", "wallet_links", "notifications", "user_settings", "audit_events",
     "account_deletion_requests", "knowledge_documents", "knowledge_chunks", "case_embeddings",
     "fix_embeddings", "outcome_intelligence", "diagnosis_sources", "ai_runs", "claim_reservations",
+    "campus_ambassador_applications",
 ]
 
 
@@ -42,7 +43,7 @@ def test_migrations_upgrade_to_head(tmp_path, monkeypatch):
         return version, tables
 
     version, tables = asyncio.run(verify())
-    assert version == "20260920_revoke_alembic_version"
+    assert version == "20260924_campus_ambassador_applications"
     for table in EXPECTED_TABLES:
         assert table in tables, f"missing table {table}"
     assert "web3_transactions" in tables, "missing table web3_transactions"

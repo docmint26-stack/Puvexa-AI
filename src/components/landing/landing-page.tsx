@@ -17,14 +17,17 @@ import { AnimatedCounter, RotatingWords, Reveal } from "@/components/shared/moti
 import { TokenBadge } from "@/components/shared/token-badge";
 import { LiveDiagnosisPanel } from "@/components/diagnose/live-diagnosis-panel";
 import { LeaderboardContent } from "@/components/leaderboard/leaderboard-content";
+import { TopProblemsSection } from "@/components/landing/top-problems-section";
+import { ProgramsSection } from "@/components/landing/programs-section";
 import { useGuestStore } from "@/lib/state/guest";
 import { notify } from "@/lib/feedback";
 import { landingStats, howItWorksSteps, features, testimonials, tokenEconomy, heroRotating } from "@/lib/data";
 import { avatarGradient } from "@/lib/format";
 
 const NAV_LINKS = [
-  { label: "Workflow", href: "#how-it-works" },
+  { label: "Problems", href: "#top-problems" },
   { label: "Features", href: "#features" },
+  { label: "Programs", href: "#programs" },
   { label: "Leaderboard", href: "#leaderboard" },
   { label: "Token", href: "#token" },
   { label: "Faq", href: "#faq" },
@@ -200,6 +203,9 @@ export function LandingPage() {
         </motion.div>
       </section>
 
+      {/* Top Searching Problems */}
+      <TopProblemsSection />
+
       {/* Problem / Solution */}
       <section className="relative border-y border-border/50 bg-card/30">
         <div className="mx-auto grid max-w-6xl gap-10 px-4 py-20 sm:px-6 lg:grid-cols-2">
@@ -305,6 +311,9 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+
+      {/* Our Programs */}
+      <ProgramsSection />
 
       {/* Token economy */}
       <section id="token" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-20 sm:px-6">
