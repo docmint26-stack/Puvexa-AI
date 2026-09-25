@@ -22,10 +22,8 @@ import {
 } from "@/components/ui/select";
 import { EASE_OUT_EXPO } from "@/lib/motion";
 import {
-  AMBASSADOR_ALREADY_APPLIED,
   AMBASSADOR_TECHNICAL_LEVELS,
   AMBASSADOR_SKILL_TAGS,
-  AmbassadorSubmissionError,
   type AmbassadorTechnicalLevel,
 } from "@/lib/campus-ambassador/types";
 import {
@@ -33,14 +31,15 @@ import {
   readApplicationDraft,
   saveApplicationDraft,
 } from "@/lib/campus-ambassador/storage";
+import { AmbassadorLocalSaveError } from "@/lib/campus-ambassador/local-application";
 import { ambassadorService } from "@/lib/services";
-import type { AmbassadorApplicationPayload, CampusAmbassadorApplication } from "@/lib/campus-ambassador/types";
+import type { AmbassadorApplicationPayload, StoredAmbassadorApplication } from "@/lib/campus-ambassador/types";
 import { ApplicationThankYou } from "./application-thank-you";
 
 const CURRENT_YEAR = new Date().getFullYear();
 
 const optionalUrl = (message: string) =>
-  z.string().trim().refine((v) => v === "" || /^https?:\/\/\S+$/.test(v), message);
+  z.string().trim().refine((v) => v === "" || /^https?:\/\/\S+$/.test(v), message).optional();
 
 const schema = z.object({
   fullName: z.string().trim().min(3, "Enter your full name (3+ characters)."),
@@ -65,9 +64,11 @@ const schema = z.object({
   linkedinUrl: optionalUrl("Enter a valid URL (https://…)."),
   otherSocialUrl: optionalUrl("Enter a valid URL (https://…)."),
   audienceCount: z
-    .number()
-    .refine(
-      (v) => Number.isNaN(v) || (Number.isInteger(v) && v >= 0),
+    .custom<number | undefined>(
+      (v) =>
+        v === undefined ||
+        (typeof v === "number" &&
+          (Number.isNaN(v) || (Number.isInteger(v) && v >= 0))),
       "Enter a valid number."
     ),
 
@@ -246,7 +247,7 @@ export function AmbassadorApplicationForm() {
   const [step, setStep] = React.useState(0);
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState<string | null>(null);
-  const [application, setApplication] = React.useState<CampusAmbassadorApplication | null>(null);
+  const [application, setApplication] = React.useState<StoredAmbassadorApplication | null>(null);
   const draftApplied = React.useRef(false);
 
   const {
@@ -350,15 +351,23 @@ export function AmbassadorApplicationForm() {
         consent: formValues.consent,
       };
       const record = await ambassadorService.submitApplication(payload);
+      // Already cleaned up inside the local service; keep the device tidy.
       clearApplicationDraft();
-      setApplication(record);
+      setApplication(record as StoredAmbassadorApplication);
     } catch (err) {
-      if (err instanceof AmbassadorSubmissionError && err.code === AMBASSADOR_ALREADY_APPLIED) {
+      if (err instanceof AmbassadorLocalSaveError) {
+        // The device refused to persist the application (private mode, quota).
         setSubmitError(err.message);
       } else if (err instanceof Error) {
-        setSubmitError(err.message);
+        // Duplicate-already-applied is handled before the form renders; treat any
+        // other failure as a local-only hiccup. Never surface backend/API errors.
+        setSubmitError(
+          err.message.includes("already submitted")
+            ? err.message
+            : "We couldn't save your application on this device. Please try again."
+        );
       } else {
-        setSubmitError("Could not submit your application right now. Please try again.");
+        setSubmitError("We couldn't save your application on this device. Please try again.");
       }
       setSubmitting(false);
     }
@@ -407,16 +416,9 @@ export function AmbassadorApplicationForm() {
       </div>
 
       {submitError && (
-        <div role="alert" className="mt-4 flex items-start gap-2.5 rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
-          <ShieldCheck className="mt-0.5 size-4 shrink-0" />
-          <div>
-            <p className="font-medium">Submission blocked</p>
-            <p className="mt-0.5 text-xs">{submitError}</p>
-            <Button size="sm" variant="secondary" className="mt-3" render={<a href="/programs/campus-ambassador/apply#status" />}>
-              View existing application
-            </Button>
-          </div>
-        </div>
+        <p role="alert" className="mt-4 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {submitError}
+        </p>
       )}
 
       <form className="mt-6 space-y-5" onSubmit={handleSubmit(onSubmit)}>
@@ -674,7 +676,11 @@ export function AmbassadorApplicationForm() {
           </Button>
           {isLast ? (
             <Button type="submit" disabled={submitting} className="min-w-44">
-              {submitting ? <Loader2 className="size-4 animate-spin" /> : <><ShieldCheck className="size-4" /> Submit application</>}
+              {submitting ? (
+                <><Loader2 className="size-4 animate-spin" /> Submitting application...</>
+              ) : (
+                <><ShieldCheck className="size-4" /> Submit application</>
+              )}
             </Button>
           ) : (
             <Button type="button" onClick={goNext}>

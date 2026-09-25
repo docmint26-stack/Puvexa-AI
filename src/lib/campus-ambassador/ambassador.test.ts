@@ -1,30 +1,29 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   AMBASSADOR_ALREADY_APPLIED,
-  AMBASSADOR_APPS_KEY,
-  AMBASSADOR_DRAFT_KEY,
   AmbassadorSubmissionError,
   type AmbassadorApplicationPayload,
-  type CampusAmbassadorApplication,
+  type StoredAmbassadorApplication,
 } from "@/lib/campus-ambassador/types";
 import {
+  clearAmbassadorApplication,
+  getAmbassadorApplication,
+  hasAmbassadorApplication,
+  saveAmbassadorApplication,
+  AmbassadorLocalSaveError,
+} from "@/lib/campus-ambassador/local-application";
+import {
   clearApplicationDraft,
-  normalizeEmail,
   readApplicationDraft,
-  readApplications,
   saveApplicationDraft,
-  saveApplications,
 } from "@/lib/campus-ambassador/storage";
-import { authService, ambassadorService } from "@/lib/services";
-import { DEMO_CREDENTIALS } from "@/lib/demo/users";
-import { useAuthStore } from "@/lib/state/auth";
-import { useGuestStore } from "@/lib/state/guest";
+import { ambassadorService } from "@/lib/services";
 
 function validPayload(): AmbassadorApplicationPayload {
   return {
     fullName: "Ada Lovelace",
-    email: "Ada@Example.com",
+    email: " Ada@Example.com ",
     phone: "+1 555 000 1234",
     country: "Nigeria",
     city: "Lagos",
@@ -38,7 +37,7 @@ function validPayload(): AmbassadorApplicationPayload {
     motivation: "I love helping classmates debug their projects and want to grow a fix-first community on campus.",
     communityGoals: "I want to host monthly problem-solving workshops and make verified fixes a habit in my CS club.",
     githubUrl: "https://github.com/ada",
-    linkedinUrl: "",
+    linkedinUrl: undefined,
     otherSocialUrl: undefined,
     audienceCount: 500,
     technicalLevel: "intermediate",
@@ -53,96 +52,111 @@ function validPayload(): AmbassadorApplicationPayload {
   };
 }
 
-function seedRecord(email: string): CampusAmbassadorApplication {
-  const record: CampusAmbassadorApplication = {
-    id: "amb_seed",
-    applicationId: "AMB-2026-SEED01",
-    fullName: "Seed User",
-    email: normalizeEmail(email),
-    status: "submitted",
-    submittedAt: new Date().toISOString(),
-    lookupToken: "seed-token-123",
-  };
-  saveApplications({ [normalizeEmail(email)]: record });
-  return record;
-}
-
 beforeEach(() => {
-  useAuthStore.setState({ user: null, loginAt: null });
-  useGuestStore.getState().resetGuest();
-  window.localStorage.removeItem(AMBASSADOR_APPS_KEY);
-  window.localStorage.removeItem(AMBASSADOR_DRAFT_KEY);
+  clearAmbassadorApplication();
+  clearApplicationDraft();
 });
 
-describe("ambassador storage helpers", () => {
-  it("normalizes emails", () => {
-    expect(normalizeEmail("  Ada@Example.COM ")).toBe("ada@example.com");
+describe("frontend-only campus ambassador flow", () => {
+  it("submits and generates a local application with status submitted and a timestamp", async () => {
+    const record = await ambassadorService.submitApplication(validPayload());
+
+    expect(record.applicationId).toMatch(/^PCA-\d{4}-[A-Z0-9]{6}$/);
+    expect(record.status).toBe("submitted");
+    expect(Number.isNaN(Date.parse(record.submittedAt))).toBe(false);
+    expect(record.fullName).toBe("Ada Lovelace");
+    expect(record.email).toBe("ada@example.com");
+    expect(new Date(record.submittedAt).getFullYear()).toBe(new Date().getFullYear());
   });
 
-  it("round-trips a draft and clears it", () => {
+  it("stores all submitted form fields alongside the summary", async () => {
+    const record = (await ambassadorService.submitApplication(
+      validPayload()
+    )) as StoredAmbassadorApplication;
+
+    expect(record.details).toMatchObject(validPayload());
+    expect(record.details.institution).toBe("University of Lagos");
+    expect(record.details.skillTags).toContain("AI & Machine Learning");
+  });
+
+  it("remembers the application after a refresh (re-read from localStorage)", async () => {
+    await ambassadorService.submitApplication(validPayload());
+
+    // Re-reading from storage simulates a page refresh — no in-memory state.
+    const restored = getAmbassadorApplication();
+    expect(restored?.applicationId).toMatch(/^PCA-\d{4}-[A-Z0-9]{6}$/);
+    expect(restored?.email).toBe("ada@example.com");
+    expect(getAmbassadorApplication()).toEqual(restored);
+  });
+
+  it("reports hasAmbassadorApplication as false before and true after submitting", async () => {
+    expect(hasAmbassadorApplication()).toBe(false);
+    await ambassadorService.submitApplication(validPayload());
+    expect(hasAmbassadorApplication()).toBe(true);
+  });
+
+  it("persists an unfinished draft before submission", () => {
     saveApplicationDraft({ fullName: "Ada", email: "ada@example.com" });
     expect(readApplicationDraft<{ fullName: string }>()?.fullName).toBe("Ada");
-    clearApplicationDraft();
+  });
+
+  it("clears the draft after a successful submission", async () => {
+    saveApplicationDraft({ fullName: "Ada", email: "ada@example.com" });
+    await ambassadorService.submitApplication(validPayload());
     expect(readApplicationDraft()).toBeNull();
   });
 
-  it("returns an empty record set when nothing is stored", () => {
-    expect(readApplications()).toEqual({});
-  });
-});
-
-describe("ambassador service (demo)", () => {
-  it("submits a valid application and stores it under the normalized email", async () => {
-    const record = await ambassadorService.submitApplication(validPayload());
-
-    expect(record.id).toMatch(/^amb-/);
-    expect(record.applicationId).toMatch(/^AMB-\d{4}-[A-Z0-9]{6}$/);
-    expect(record.email).toBe("ada@example.com");
-    expect(record.status).toBe("submitted");
-    expect(record.lookupToken).toBeTruthy();
-    expect(readApplications()["ada@example.com"]?.applicationId).toBe(record.applicationId);
-  });
-
-  it("rejects a duplicate email with code ALREADY_APPLIED (409)", async () => {
-    const payload = validPayload();
-    await ambassadorService.submitApplication(payload);
-
-    await expect(ambassadorService.submitApplication(payload)).rejects.toMatchObject({
-      code: AMBASSADOR_ALREADY_APPLIED,
-      status: 409,
-    });
-    expect(readApplications()["ada@example.com"]).toBeDefined();
-  });
-
-  it("is tolerant of a second email that differs only by case", async () => {
+  it("prevents duplicate submissions and returns the existing reference", async () => {
     await ambassadorService.submitApplication(validPayload());
-    await expect(
-      ambassadorService.submitApplication({ ...validPayload(), email: "ADA@example.com" })
-    ).rejects.toBeInstanceOf(AmbassadorSubmissionError);
+
+    let duplicate: unknown;
+    try {
+      await ambassadorService.submitApplication(validPayload());
+    } catch (e) {
+      duplicate = e;
+    }
+
+    expect(duplicate).toBeInstanceOf(AmbassadorSubmissionError);
+    expect((duplicate as AmbassadorSubmissionError).code).toBe(AMBASSADOR_ALREADY_APPLIED);
+    expect((duplicate as AmbassadorSubmissionError).status).toBe(409);
   });
 
-  it("returns null for the current user when they have not applied", async () => {
-    await authService.login(DEMO_CREDENTIALS.email, DEMO_CREDENTIALS.password);
-    expect(await ambassadorService.getMyApplication()).toBeNull();
+  it("lets guests submit without any sign-in", async () => {
+    const record = await ambassadorService.submitApplication(validPayload());
+    expect(record.submittedAt).toBeTruthy();
   });
 
-  it("returns the current user's application when stored", async () => {
-    await authService.login(DEMO_CREDENTIALS.email, DEMO_CREDENTIALS.password);
-    const seeded = seedRecord(DEMO_CREDENTIALS.email);
-
-    const mine = await ambassadorService.getMyApplication();
-    expect(mine?.id).toBe(seeded.id);
-    expect(mine?.applicationId).toBe("AMB-2026-SEED01");
+  it("submits locally without any network call", async () => {
+    const fetchSpy = typeof globalThis.fetch === "function"
+      ? vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("offline"))
+      : undefined;
+    try {
+      const record = await ambassadorService.submitApplication(validPayload());
+      expect(record.status).toBe("submitted");
+    } finally {
+      fetchSpy?.mockRestore();
+    }
   });
 
-  it("returns null for guests", async () => {
-    expect(await ambassadorService.getMyApplication()).toBeNull();
+  it("throws a local save error when the device refuses to persist", async () => {
+    const setItemSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("Quota exceeded", "QuotaExceededError");
+    });
+    try {
+      await expect(ambassadorService.submitApplication(validPayload())).rejects.toBeInstanceOf(
+        AmbassadorLocalSaveError
+      );
+      expect(hasAmbassadorApplication()).toBe(false);
+    } finally {
+      setItemSpy.mockRestore();
+    }
   });
 
-  it("looks up an application by its lookup token", async () => {
-    const seeded = seedRecord("token@example.com");
-    const found = await ambassadorService.getByLookupToken?.("seed-token-123");
-    expect(found?.id).toBe(seeded.id);
-    expect(await ambassadorService.getByLookupToken?.("nope")).toBeNull();
+  it("exposes stored applications through the helper functions", () => {
+    saveAmbassadorApplication(validPayload());
+    expect(hasAmbassadorApplication()).toBe(true);
+    clearAmbassadorApplication();
+    expect(hasAmbassadorApplication()).toBe(false);
+    expect(getAmbassadorApplication()).toBeNull();
   });
 });

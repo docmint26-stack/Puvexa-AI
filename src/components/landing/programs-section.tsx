@@ -77,6 +77,11 @@ export function ProgramsSection() {
                 <p className="mt-4 text-xs font-semibold text-primary">{p.tagline}</p>
                 <p className="text-sm font-semibold text-foreground">{p.title}</p>
                 <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{p.description}</p>
+                {applied ? (
+                  <p className="mt-2 text-[11px] font-medium text-muted-foreground">
+                    Status · <span className="font-semibold text-success">Submitted</span>
+                  </p>
+                ) : null}
 
                 <ul className="mt-3 space-y-1.5">
                   {p.features.map((f) => (
@@ -92,7 +97,7 @@ export function ProgramsSection() {
                     <Button
                       size="sm"
                       variant={p.featured ? "default" : "secondary"}
-                      render={<Link href={applied ? "/programs/campus-ambassador/apply" : p.cta.href} />}
+                      render={<Link href={applied ? "/programs/campus-ambassador/application" : p.cta.href} />}
                     >
                       {applied ? "View application" : p.cta.label} <ArrowRight className="size-3.5" />
                     </Button>

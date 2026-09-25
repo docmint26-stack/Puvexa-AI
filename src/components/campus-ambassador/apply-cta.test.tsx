@@ -2,22 +2,39 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { AmbassadorApplyCta } from "./apply-cta";
+import type { AmbassadorApplicationPayload } from "@/lib/campus-ambassador/types";
 import {
-  AMBASSADOR_APPS_KEY,
-  type CampusAmbassadorApplication,
-} from "@/lib/campus-ambassador/types";
-import { saveApplications } from "@/lib/campus-ambassador/storage";
-import { authService } from "@/lib/services";
-import { DEMO_CREDENTIALS } from "@/lib/demo/users";
-import { useAuthStore } from "@/lib/state/auth";
-import { useGuestStore } from "@/lib/state/guest";
+  clearAmbassadorApplication,
+  saveAmbassadorApplication,
+} from "@/lib/campus-ambassador/local-application";
+
+function payload(): AmbassadorApplicationPayload {
+  return {
+    fullName: "Ada Lovelace",
+    email: "ada@example.com",
+    country: "Nigeria",
+    institution: "University of Lagos",
+    program: "BSc Computer Science",
+    graduationYear: 2027,
+    currentStudent: true,
+    leadershipExperience: false,
+    motivation: "I love helping classmates debug their projects and want to grow a fix-first community on campus.",
+    communityGoals: "I want to host monthly problem-solving workshops and make verified fixes a habit in my CS club.",
+    technicalLevel: "intermediate",
+    skillTags: ["Community Management"],
+    weeklyHours: 5,
+    availabilityMonths: 6,
+    timezone: "WAT — Lagos",
+    resourcesNeeded: "Event templates and a starter kit for the first workshop.",
+    previousAmbassador: false,
+    consent: true,
+  };
+}
 
 afterEach(cleanup);
 
 beforeEach(() => {
-  useAuthStore.setState({ user: null, loginAt: null });
-  useGuestStore.getState().resetGuest();
-  window.localStorage.removeItem(AMBASSADOR_APPS_KEY);
+  clearAmbassadorApplication();
 });
 
 describe("AmbassadorApplyCta", () => {
@@ -33,23 +50,14 @@ describe("AmbassadorApplyCta", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("shows the submitted status instead of the CTA once applied", async () => {
-    const record: CampusAmbassadorApplication = {
-      id: "amb_seed",
-      applicationId: "AMB-2026-SEED02",
-      fullName: "Demo User",
-      email: DEMO_CREDENTIALS.email,
-      status: "submitted",
-      submittedAt: new Date().toISOString(),
-      lookupToken: "tok-seed",
-    };
-    saveApplications({ [DEMO_CREDENTIALS.email]: record });
-    await authService.login(DEMO_CREDENTIALS.email, DEMO_CREDENTIALS.password);
+  it("shows the already-applied state instead of the CTA once submitted", async () => {
+    saveAmbassadorApplication(payload());
 
     render(<AmbassadorApplyCta />);
 
-    expect(await screen.findByText("Application submitted")).toBeInTheDocument();
-    expect(screen.getByText(/AMB-2026-SEED02/)).toBeInTheDocument();
+    expect(await screen.findByText("You've already applied")).toBeInTheDocument();
+    expect(screen.getByText(/PCA-\d{4}-/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /view application/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /apply now/i })).not.toBeInTheDocument();
   });
 });

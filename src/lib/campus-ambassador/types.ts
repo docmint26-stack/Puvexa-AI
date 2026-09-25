@@ -74,6 +74,14 @@ export interface CampusAmbassadorApplication {
   lookupToken?: string;
 }
 
+/**
+ * The frontend-only campus ambassador application stored on this device.
+ * Carries the full submitted payload so the detail view can rebuild the form.
+ */
+export interface StoredAmbassadorApplication extends CampusAmbassadorApplication {
+  details: AmbassadorApplicationPayload;
+}
+
 export interface AmbassadorService {
   submitApplication(payload: AmbassadorApplicationPayload): Promise<CampusAmbassadorApplication>;
   getMyApplication(): Promise<CampusAmbassadorApplication | null>;
@@ -96,5 +104,8 @@ export class AmbassadorSubmissionError extends Error {
 }
 
 export const AMBASSADOR_ALREADY_APPLIED = "ALREADY_APPLIED";
-export const AMBASSADOR_DRAFT_KEY = "puvexa:amb:draft";
+export const AMBASSADOR_DRAFT_KEY = "puvexa-campus-ambassador-draft";
+/** Single frontend-only application stored on this device. */
+export const AMBASSADOR_APPLICATION_KEY = "puvexa-campus-ambassador-application";
+/** Legacy demo (per-email) store — kept for the demo service. */
 export const AMBASSADOR_APPS_KEY = "puvexa:amb:applications";

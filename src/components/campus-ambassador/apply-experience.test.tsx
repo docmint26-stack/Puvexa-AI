@@ -1,16 +1,17 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ProgramsSection } from "./programs-section";
 import type { AmbassadorApplicationPayload } from "@/lib/campus-ambassador/types";
 import {
   clearAmbassadorApplication,
   saveAmbassadorApplication,
 } from "@/lib/campus-ambassador/local-application";
 
-vi.mock("@/components/shared/motion", () => ({
-  Reveal: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+vi.mock("./ambassador-application-form", () => ({
+  AmbassadorApplicationForm: () => <div data-testid="ambassador-form">Campus Ambassador form</div>,
 }));
+
+import { AmbassadorApplyExperience } from "./apply-experience";
 
 function payload(): AmbassadorApplicationPayload {
   return {
@@ -41,21 +42,19 @@ beforeEach(() => {
   clearAmbassadorApplication();
 });
 
-describe("ProgramsSection", () => {
-  it("shows applications open and an apply CTA for guests", async () => {
-    render(<ProgramsSection />);
-    expect((await screen.findAllByText("Applications open")).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: /apply now/i })).toBeInTheDocument();
+describe("AmbassadorApplyExperience", () => {
+  it("shows the application form when nothing has been submitted yet", async () => {
+    render(<AmbassadorApplyExperience />);
+    expect(await screen.findByTestId("ambassador-form")).toBeInTheDocument();
   });
 
-  it("shows Application submitted once an application is saved locally", async () => {
+  it("shows the already-applied view once an application is saved", async () => {
     saveAmbassadorApplication(payload());
 
-    render(<ProgramsSection />);
+    render(<AmbassadorApplyExperience />);
 
-    expect(await screen.findByText("Application submitted")).toBeInTheDocument();
-    expect(screen.getByText("Submitted")).toBeInTheDocument();
+    expect(await screen.findByText("You've already applied")).toBeInTheDocument();
+    expect(screen.getByText(/PCA-\d{4}-[A-Z0-9]{6}/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /view application/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /apply now/i })).not.toBeInTheDocument();
   });
 });

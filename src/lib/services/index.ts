@@ -24,11 +24,23 @@ import {
   apiWalletService,
 } from "@/lib/api/services";
 import { apiAmbassadorService } from "@/lib/api/ambassador";
+import {
+  CAMPUS_AMBASSADOR_LOCAL_MODE,
+} from "@/lib/campus-ambassador/local-application";
+import { localAmbassadorService } from "@/lib/services/ambassador-local";
 
 export * from "./types";
 export * from "@/lib/campus-ambassador/types";
 
 export const isDemoMode = DEMO_MODE;
+
+// Campus ambassador is temporarily frontend-only: the application saves to
+// this device (no backend, no API, no sign-in). The real review system and
+// its API client already exist and are used once CAMPUS_AMBASSADOR_LOCAL_MODE
+// flips to false.
+export const ambassadorService: AmbassadorService = CAMPUS_AMBASSADOR_LOCAL_MODE
+  ? localAmbassadorService
+  : apiAmbassadorService;
 
 // The demo mode uses fully local, deterministic services. In production
 // (NEXT_PUBLIC_DEMO_MODE !== "true") every service talks to the FastAPI
@@ -42,4 +54,3 @@ export const contributionService: ContributionService = isDemoMode ? demo.contri
 export const leaderboardService: LeaderboardService = isDemoMode ? demo.leaderboardSvc : apiLeaderboardService;
 export const notificationService: NotificationService = isDemoMode ? demo.notificationSvc : apiNotificationService;
 export const profileService: ProfileService = isDemoMode ? demo.profileSvc : apiProfileService;
-export const ambassadorService: AmbassadorService = isDemoMode ? demo.ambassadorSvc : apiAmbassadorService;
