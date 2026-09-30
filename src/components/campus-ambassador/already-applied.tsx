@@ -38,7 +38,7 @@ export function AlreadyAppliedView({
         You&apos;ve already applied
       </h1>
       <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
-        Your campus ambassador application is submitted and saved on this device.
+        Your Ambassador Program application is submitted and saved on this device.
         Thank you for your interest in representing Puvexa on your campus.
       </p>
 

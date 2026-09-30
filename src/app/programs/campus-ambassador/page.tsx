@@ -8,11 +8,11 @@ import { Button } from "@/components/ui/button";
 import { AmbassadorApplyCta } from "@/components/campus-ambassador/apply-cta";
 
 export const metadata: Metadata = {
-  title: "Campus Ambassador Program",
+  title: "Ambassador Program",
   description:
-    "Champion Puvexa at your university. Host events, help students diagnose and fix real problems, and grow the Puvexa network on campus.",
+    "Champion Puvexa in your community. Host events, help people diagnose and fix real problems, and grow the Puvexa network.",
   openGraph: {
-    title: "Puvexa Campus Ambassador Program",
+    title: "Puvexa Ambassador Program",
     description:
       "A leadership experience for students who love solving technical problems — launch, learn, and grow with Puvexa.",
     type: "website",
@@ -22,10 +22,10 @@ export const metadata: Metadata = {
 const EXPECTED = [
   {
     icon: "megaphone",
-    title: "Lead at campus scale",
+    title: "Lead at community scale",
     points: [
       "Host one Puvexa workshop or demo session each term",
-      "Run a campus troubleshooting group or office hours",
+      "Run a troubleshooting group or office hours",
       "Share verified-fix culture with your CS, IT, and maker clubs",
     ],
   },
@@ -43,7 +43,7 @@ const EXPECTED = [
     title: "Grow your skills",
     points: [
       "Practice mentoring, public speaking, and technical writing",
-      "Earn a verified Puvexa Campus Ambassador certificate",
+      "Earn a verified Puvexa Ambassador certificate",
       "Get early access to features and direct founder Q&As",
     ],
   },
@@ -58,11 +58,11 @@ const WHO = [
   {
     icon: "graduation-cap",
     title: "Students who love fixing",
-    description: "You answer questions in class, in clubs, or on campus forums — teaching is your superpower.",
+    description: "You answer questions in class, in clubs, or in online communities — teaching is your superpower.",
   },
   {
     icon: "megaphone",
-    title: "Campus communicators",
+    title: "Community communicators",
     description: "You can take a clear message to the right audience — clubs, departments, and social groups.",
   },
   {
@@ -73,7 +73,7 @@ const WHO = [
 ];
 
 const SELECTION = [
-  { step: "01", title: "Apply online", description: "A 10-minute form about you, your campus, and your goals." },
+  { step: "01", title: "Apply online", description: "A 10-minute form about you, your community, and your goals." },
   { step: "02", title: "We review", description: "Every application is read by a human. No algorithms, no auto-rejects." },
   { step: "03", title: "Short conversation", description: "A quick, friendly 20-minute call to learn about you." },
   { step: "04", title: "Welcome aboard", description: "Get onboarded with a starter kit and your first 30-day plan." },
@@ -94,7 +94,7 @@ const FAQ = [
   },
   {
     q: "Can I join if I'm not enrolled full-time?",
-    a: "The program is open to current students, recent graduates, and campus club organizers. Apply and tell us about your situation.",
+    a: "The program is open to current students, recent graduates, and community organizers. Apply and tell us about your situation.",
   },
   {
     q: "How long will I serve as an ambassador?",
@@ -119,11 +119,10 @@ export default function CampusAmbassadorPage() {
             </Badge>
           </div>
           <h1 className="mx-auto mt-5 max-w-3xl font-heading text-4xl font-bold leading-[1.08] tracking-tight text-foreground sm:text-6xl">
-            Become a <span className="bg-linear-to-r from-violet-400 via-primary to-cyan-400 bg-clip-text text-transparent">Puvexa</span> Campus
-            Ambassador
+            Become a <span className="bg-linear-to-r from-violet-400 via-primary to-cyan-400 bg-clip-text text-transparent">Puvexa</span> Ambassador
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-base text-muted-foreground sm:text-lg">
-            Lead the troubleshooting community on your campus. Help students fix real problems, learn to teach
+            Lead the troubleshooting community around you. Help people fix real problems, learn to teach
             effectively, and earn verifiable leadership experience with Puvexa.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
@@ -149,7 +148,7 @@ export default function CampusAmbassadorPage() {
             A real role with a real impact
           </h2>
           <p className="mx-auto mt-3 max-w-lg text-sm text-muted-foreground">
-            Three focus areas, one goal: make your campus better at solving technical problems.
+            Three focus areas, one goal: make your community better at solving technical problems.
           </p>
         </div>
         <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -249,7 +248,7 @@ export default function CampusAmbassadorPage() {
               <GraduationCap className="size-6" />
             </span>
             <h2 className="mt-4 max-w-2xl font-heading text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-              Ready to lead the fixers on your campus?
+              Ready to lead the fixers in your community?
             </h2>
             <p className="mx-auto mt-3 max-w-md text-sm text-muted-foreground">
               The application takes about 10 minutes. We read every single one.

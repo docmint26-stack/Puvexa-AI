@@ -24,8 +24,7 @@ export function ProgramsSection() {
             Learn, lead, and level up with Puvexa
           </h2>
           <p className="mx-auto mt-3 max-w-lg text-sm text-muted-foreground">
-            Hands-on ways to grow around troubleshooting — from leading your campus community to contributing
-            verified fixes that help people around the world.
+            Hands-on ways to grow around troubleshooting through the Ambassador Program.
           </p>
         </div>
 

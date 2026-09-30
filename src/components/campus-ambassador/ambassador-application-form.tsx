@@ -48,12 +48,21 @@ const schema = z.object({
   country: z.string().trim().min(2, "Enter your country."),
   city: z.string().trim().optional(),
 
-  institution: z.string().trim().min(2, "Enter your institution."),
-  program: z.string().trim().min(2, "Enter your degree or program."),
-  graduationYear: z.number().int().min(CURRENT_YEAR).max(CURRENT_YEAR + 12),
-  currentStudent: z.boolean(),
-  clubMember: z.boolean(),
+  institution: z.string().trim().optional(),
+  program: z.string().trim().optional(),
+  graduationYear: z.number().int().min(CURRENT_YEAR).max(CURRENT_YEAR + 12).optional(),
+  currentStudent: z.boolean().optional(),
+  clubMember: z.boolean().optional(),
   clubInvolvement: z.string().trim().optional(),
+
+  nickname: z.string().trim().min(2, "Enter a name or nickname."),
+  telegramUsername: z.string().trim().optional(),
+  xProfileUrl: z.string().trim().url("Enter a valid X profile URL."),
+  xFollowerCount: z.number().int().min(0, "Enter a valid follower count."),
+  mainContentLanguage: z.string().trim().min(1, "Select your main content language."),
+  cryptoContentLinks: z.string().trim().min(5, "Share at least one content link."),
+  communityExperience: z.string().trim().min(10, "Tell us about your experience."),
+  qualityPostsCommitment: z.boolean(),
 
   leadershipExperience: z.boolean(),
   leadershipDescription: z.string().trim().optional(),
@@ -103,9 +112,9 @@ const STEPS: StepDef[] = [
   },
   {
     id: "academic",
-    title: "Academic details",
-    description: "Where you study and what you're working toward.",
-    fields: ["institution", "program", "graduationYear", "currentStudent", "clubMember", "clubInvolvement"],
+    title: "Creator profile",
+    description: "Tell us about your content, audience, and community experience.",
+    fields: ["nickname", "telegramUsername", "xProfileUrl", "xFollowerCount", "mainContentLanguage", "cryptoContentLinks", "communityExperience", "qualityPostsCommitment"],
   },
   {
     id: "community",
@@ -262,7 +271,7 @@ export function AmbassadorApplicationForm() {
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      currentStudent: true,
+      currentStudent: undefined,
       clubMember: false,
       leadershipExperience: false,
       previousAmbassador: false,
@@ -274,6 +283,14 @@ export function AmbassadorApplicationForm() {
       availabilityMonths: 6,
       timezone: "",
       technicalLevel: "intermediate",
+      nickname: "",
+      telegramUsername: "",
+      xProfileUrl: "",
+      xFollowerCount: undefined,
+      mainContentLanguage: "",
+      cryptoContentLinks: "",
+      communityExperience: "",
+      qualityPostsCommitment: false,
     },
   });
 
@@ -332,6 +349,14 @@ export function AmbassadorApplicationForm() {
         graduationYear: formValues.graduationYear,
         currentStudent: formValues.currentStudent,
         clubInvolvement: formValues.clubMember ? formValues.clubInvolvement || undefined : undefined,
+        nickname: formValues.nickname,
+        telegramUsername: formValues.telegramUsername || undefined,
+        xProfileUrl: formValues.xProfileUrl,
+        xFollowerCount: formValues.xFollowerCount,
+        mainContentLanguage: formValues.mainContentLanguage,
+        cryptoContentLinks: formValues.cryptoContentLinks,
+        communityExperience: formValues.communityExperience,
+        qualityPostsCommitment: formValues.qualityPostsCommitment,
         leadershipExperience: formValues.leadershipExperience,
         leadershipDescription: formValues.leadershipDescription || undefined,
         motivation: formValues.motivation,
@@ -455,36 +480,42 @@ export function AmbassadorApplicationForm() {
 
             {step === 1 && (
               <>
-                <Field label="Institution" htmlFor="ca-inst" required error={errors.institution?.message}>
-                  <Input id="ca-inst" placeholder="e.g. University of Lagos" {...register("institution")} />
+                <Field label="Name or nickname" htmlFor="ca-nickname" required error={errors.nickname?.message}>
+                  <Input id="ca-nickname" placeholder="Your name or nickname" {...register("nickname")} />
                 </Field>
-                <Field label="Degree / program" htmlFor="ca-program" required error={errors.program?.message}>
-                  <Input id="ca-program" placeholder="e.g. BSc Computer Science" {...register("program")} />
+                <Field label="Telegram username" htmlFor="ca-telegram" error={errors.telegramUsername?.message}>
+                  <Input id="ca-telegram" placeholder="@yourusername" {...register("telegramUsername")} />
                 </Field>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Expected graduation year" htmlFor="ca-grad" required error={errors.graduationYear?.message}>
-                    <Input id="ca-grad" type="number" min={CURRENT_YEAR} max={CURRENT_YEAR + 12} {...register("graduationYear", { valueAsNumber: true })} />
+                  <Field label="X (Twitter) profile link" htmlFor="ca-x" required error={errors.xProfileUrl?.message}>
+                    <Input id="ca-x" placeholder="https://x.com/you" {...register("xProfileUrl")} />
                   </Field>
-                  <Field label="Current student?" required>
-                    <div className="grid grid-cols-2 gap-2">
-                      <CheckRow label="Yes, enrolled now" checked={values.currentStudent === true} onChange={() => setValue("currentStudent", true, { shouldValidate: true })} />
-                      <CheckRow label="Not currently" checked={values.currentStudent === false} onChange={() => setValue("currentStudent", false, { shouldValidate: true })} />
-                    </div>
+                  <Field label="Current X (Twitter) follower count" htmlFor="ca-followers" required error={errors.xFollowerCount?.message}>
+                    <Input id="ca-followers" type="number" min={0} placeholder="e.g. 500" {...register("xFollowerCount", { valueAsNumber: true })} />
                   </Field>
                 </div>
-                <Field label="Campus / club involvement?">
-                  <CheckRow
-                    label="I'm part of a campus club or society"
-                    hint="Enable this to tell us which one (optional)."
-                    checked={values.clubMember === true}
-                    onChange={() => setValue("clubMember", !values.clubMember, { shouldValidate: true })}
-                  />
+                <Field label="Main content language" required error={errors.mainContentLanguage?.message}>
+                  <Select value={values.mainContentLanguage || undefined} onValueChange={(v) => setValue("mainContentLanguage", v ?? "", { shouldValidate: true })}>
+                    <SelectTrigger className="w-full"><SelectValue placeholder="Choose" /></SelectTrigger>
+                    <SelectContent>
+                      {['English', 'Bangla', 'Hindi', 'Arabic', 'Spanish', 'French', 'Other'].map((language) => (
+                        <SelectItem key={language} value={language}>{language}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </Field>
-                {values.clubMember && (
-                  <Field label="Which club or society?" htmlFor="ca-club" error={errors.clubInvolvement?.message}>
-                    <Input id="ca-club" placeholder="e.g. Google Developer Student Club, engineering society…" {...register("clubInvolvement")} />
-                  </Field>
-                )}
+                <Field label="Share links to 2–3 examples of your best crypto content" htmlFor="ca-content" required error={errors.cryptoContentLinks?.message}>
+                  <Textarea id="ca-content" rows={3} placeholder="Paste your content links" {...register("cryptoContentLinks")} />
+                </Field>
+                <Field label={'Describe any previous ambassador or community experience (write "None yet" if you are new)'} htmlFor="ca-experience" required error={errors.communityExperience?.message}>
+                  <Textarea id="ca-experience" rows={3} placeholder="Tell us about your experience" {...register("communityExperience")} />
+                </Field>
+                <Field label="Can you commit to at least 3 quality posts per week?" required error={errors.qualityPostsCommitment?.message}>
+                  <div className="grid grid-cols-2 gap-2">
+                    <CheckRow label="Yes" checked={values.qualityPostsCommitment === true} onChange={() => setValue("qualityPostsCommitment", true, { shouldValidate: true })} />
+                    <CheckRow label="No" checked={values.qualityPostsCommitment === false} onChange={() => setValue("qualityPostsCommitment", false, { shouldValidate: true })} />
+                  </div>
+                </Field>
               </>
             )}
 
@@ -504,7 +535,7 @@ export function AmbassadorApplicationForm() {
                   </Field>
                 )}
                 <Field
-                  label="Why do you want to become a campus ambassador?"
+                  label="Why do you want to become a Puvexa Ambassador?"
                   htmlFor="ca-motivation"
                   required
                   hint={`${(values.motivation ?? "").trim().length} chars`}
@@ -513,13 +544,13 @@ export function AmbassadorApplicationForm() {
                   <Textarea id="ca-motivation" rows={4} placeholder="Share what drives you and what you hope to gain…" {...register("motivation")} />
                 </Field>
                 <Field
-                  label="What would you change about tech problem-solving on your campus?"
+                  label="How would you help Puvexa attract real users and genuine engagement?"
                   htmlFor="ca-goals"
                   required
                   hint={`${(values.communityGoals ?? "").trim().length} chars`}
                   error={errors.communityGoals?.message}
                 >
-                  <Textarea id="ca-goals" rows={4} placeholder="Describe the impact you'd like to create…" {...register("communityGoals")} />
+                  <Textarea id="ca-goals" rows={4} placeholder="Describe your ideas for attracting users and building genuine engagement…" {...register("communityGoals")} />
                 </Field>
               </>
             )}
@@ -632,7 +663,7 @@ export function AmbassadorApplicationForm() {
 
             {step === 6 && (
               <>
-                <Field label="Have you been a campus ambassador before?">
+                <Field label="Have you been an ambassador before?">
                   <CheckRow
                     label="Yes — I've been an ambassador for another program"
                     checked={values.previousAmbassador === true}

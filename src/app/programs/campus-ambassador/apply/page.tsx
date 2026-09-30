@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 import { AmbassadorApplyExperience } from "@/components/campus-ambassador/apply-experience";
 
 export const metadata: Metadata = {
-  title: "Apply — Campus Ambassador | Puvexa",
+  title: "Apply — Ambassador Program | Puvexa",
   description:
-    "Apply to become a Puvexa Campus Ambassador. A volunteer leadership program that gives you first experience in developer communities, open source, and event operations.",
+    "Apply to become a Puvexa Ambassador. A volunteer leadership program that gives you first experience in developer communities, open source, and event operations.",
   robots: { index: true, follow: false },
 };
 

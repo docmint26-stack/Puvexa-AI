@@ -52,7 +52,7 @@ export function ApplicationDetailView() {
       <div className="mx-auto max-w-xl text-center">
         <p className="text-2xl font-semibold text-foreground">No application found</p>
         <p className="mt-2 text-sm text-muted-foreground">
-          There is no campus ambassador application saved on this device yet.
+          There is no Ambassador Program application saved on this device yet.
         </p>
         <Button className="mt-6" render={<Link href="/programs/campus-ambassador/apply" />}>
           Start your application <ArrowRight className="size-4" />
@@ -85,7 +85,7 @@ export function ApplicationDetailView() {
             </h1>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Saved on this device for the Puvexa Campus Ambassador Program.
+            Saved on this device for the Puvexa Ambassador Program.
           </p>
         </div>
         <Badge variant="secondary" className="w-fit gap-1.5 border-success/20 bg-success/10 px-3 py-1 text-success">
@@ -110,15 +110,8 @@ export function ApplicationDetailView() {
           <Row label="City" value={d.city} />
         </Section>
 
-        <Section title="Academic Information">
-          <Row label="Institution" value={d.institution} />
-          <Row label="Degree / program" value={d.program} />
-          <Row label="Expected graduation year" value={String(d.graduationYear)} />
-          <Row label="Current student" value={d.currentStudent ? "Yes" : "No"} />
-        </Section>
-
         <Section title="Community Experience">
-          <Row label="Campus club / society" value={d.clubInvolvement} />
+          <Row label="Community / society" value={d.clubInvolvement} />
           <Row label="Leadership experience" value={d.leadershipExperience ? "Yes" : "No"} />
           {d.leadershipDescription ? <Row label="Leadership details" value={d.leadershipDescription} /> : null}
           <Row label="Previous ambassador" value={d.previousAmbassador ? "Yes" : "No"} />
@@ -126,11 +119,19 @@ export function ApplicationDetailView() {
         </Section>
 
         <Section title="Motivation">
-          <Row label="Why become a campus ambassador?" value={d.motivation} />
+          <Row label="Why become a Puvexa Ambassador?" value={d.motivation} />
           <Row label="Impact you'd like to create" value={d.communityGoals} />
         </Section>
 
         <Section title="Reach & Activities">
+          <Row label="Name or nickname" value={d.nickname} />
+          <Row label="Telegram username" value={d.telegramUsername} />
+          <Row label="X profile" value={d.xProfileUrl} />
+          <Row label="X followers" value={d.xFollowerCount != null ? String(d.xFollowerCount) : undefined} />
+          <Row label="Main content language" value={d.mainContentLanguage} />
+          <Row label="Best crypto content" value={d.cryptoContentLinks} />
+          <Row label="Previous community experience" value={d.communityExperience} />
+          <Row label="3 quality posts per week" value={d.qualityPostsCommitment ? "Yes" : "No"} />
           <Row label="GitHub" value={d.githubUrl} />
           <Row label="LinkedIn" value={d.linkedinUrl} />
           <Row label="Other profile" value={d.otherSocialUrl} />

@@ -29,7 +29,7 @@ export function ApplicationThankYou({
   const submitted = new Date(application.submittedAt);
   const date = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "long", day: "numeric" }).format(submitted);
   const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(submitted);
-  const university = application.details?.institution;
+  const nickname = application.details?.nickname;
 
   return (
     <div className="mx-auto max-w-xl text-center">
@@ -72,7 +72,7 @@ export function ApplicationThankYou({
           Application Submitted Successfully
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          Thank you for applying to the Puvexa Campus Ambassador Program.
+          Thank you for applying to the Puvexa Ambassador Program.
         </p>
       </motion.div>
 
@@ -108,8 +108,8 @@ export function ApplicationThankYou({
             <p className="mt-0.5 text-sm font-semibold text-foreground">{application.fullName}</p>
           </div>
           <div>
-            <p className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">University</p>
-            <p className="mt-0.5 text-sm font-semibold text-foreground">{university ?? "—"}</p>
+            <p className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">Name or nickname</p>
+            <p className="mt-0.5 text-sm font-semibold text-foreground">{nickname ?? "—"}</p>
           </div>
         </div>
       </motion.div>
@@ -123,7 +123,7 @@ export function ApplicationThankYou({
         <p>
           Your application has been successfully submitted in this application experience.
         </p>
-        <p>We&apos;re excited to see your interest in representing Puvexa on your campus.</p>
+        <p>We&apos;re excited to see your interest in representing Puvexa in your community.</p>
         <p className="font-medium text-foreground/80">
           Your application details have been saved on this device.
         </p>

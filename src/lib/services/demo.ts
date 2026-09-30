@@ -374,7 +374,7 @@ export class DemoAmbassadorService implements AmbassadorService {
     };
     saveApplications({ ...apps, [email]: record });
     useGuestStore.getState().guestNotify(
-      "Campus Ambassador application submitted",
+      "Ambassador Program application submitted",
       `Your application ${record.applicationId} is under review.`,
       "case",
       "/programs/campus-ambassador"
