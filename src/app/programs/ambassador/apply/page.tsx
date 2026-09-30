@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 
 import { AmbassadorApplyExperience } from "@/components/campus-ambassador/apply-experience";
 
@@ -11,8 +10,6 @@ export const metadata: Metadata = {
 };
 
 export default function CampusAmbassadorApplyPage() {
-  redirect("/programs/ambassador/apply");
-
   return (
     <main className="relative min-h-screen overflow-hidden">
       <div className="relative mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-14">

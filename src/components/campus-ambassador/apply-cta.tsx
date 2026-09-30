@@ -41,7 +41,7 @@ export function AmbassadorApplyCta({
             size="sm"
             variant="secondary"
             className="shrink-0"
-            render={<Link href="/programs/campus-ambassador/application" />}
+            render={<Link href="/programs/ambassador/application" />}
           >
             View application <ChevronRight className="size-4" />
           </Button>
@@ -51,7 +51,7 @@ export function AmbassadorApplyCta({
           <p className="text-sm font-semibold text-foreground">
             Ready to build your first tech community?
           </p>
-          <Button render={<Link href="/programs/campus-ambassador/apply" />}>
+          <Button render={<Link href="/programs/ambassador/apply" />}>
             Apply now <ChevronRight className="size-4" />
           </Button>
         </div>

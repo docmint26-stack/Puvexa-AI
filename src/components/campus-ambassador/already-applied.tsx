@@ -62,10 +62,10 @@ export function AlreadyAppliedView({
       </div>
 
       <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-        <Button render={<Link href="/programs/campus-ambassador/application" />}>
+        <Button render={<Link href="/programs/ambassador/application" />}>
           View application <ArrowRight className="size-4" />
         </Button>
-        <Button variant="ghost" render={<Link href="/programs/campus-ambassador" />}>
+        <Button variant="ghost" render={<Link href="/programs/ambassador" />}>
           <ArrowLeft className="size-4" /> Back to program
         </Button>
       </div>

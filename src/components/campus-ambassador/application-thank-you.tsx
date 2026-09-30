@@ -136,7 +136,7 @@ export function ApplicationThankYou({
         <Button render={<Link href="/dashboard" />}>
           Explore Puvexa <ArrowRight className="size-4" />
         </Button>
-        <Button variant="secondary" render={<Link href="/programs/campus-ambassador/application" />}>
+        <Button variant="secondary" render={<Link href="/programs/ambassador/application" />}>
           View application
         </Button>
         <Button variant="ghost" render={<Link href="/" />}>

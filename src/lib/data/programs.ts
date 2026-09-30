@@ -28,7 +28,7 @@ export const programs: Program[] = [
       "Public speaking and mentoring practice",
       "Certificate + priority product access",
     ],
-    cta: { label: "Apply now", href: "/programs/campus-ambassador" },
+    cta: { label: "Apply now", href: "/programs/ambassador" },
     featured: true,
   },
 ];

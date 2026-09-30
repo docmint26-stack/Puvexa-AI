@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { ArrowRight, Check, GraduationCap } from "lucide-react";
 
 import { Icon } from "@/components/shared/icon";
@@ -104,8 +103,6 @@ const FAQ = [
 ];
 
 export default function CampusAmbassadorPage() {
-  redirect("/programs/ambassador");
-
   return (
     <div className="space-y-16 sm:space-y-20">
       {/* Hero */}

@@ -416,7 +416,7 @@ export function AmbassadorApplicationForm() {
       <div className="mb-2 flex items-center justify-between">
         <button
           type="button"
-          onClick={() => router.push("/programs/campus-ambassador")}
+          onClick={() => router.push("/programs/ambassador")}
           className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft className="size-3.5" /> Back to program

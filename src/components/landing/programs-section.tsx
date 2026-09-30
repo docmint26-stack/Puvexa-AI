@@ -96,7 +96,7 @@ export function ProgramsSection() {
                     <Button
                       size="sm"
                       variant={p.featured ? "default" : "secondary"}
-                      render={<Link href={applied ? "/programs/campus-ambassador/application" : p.cta.href} />}
+                      render={<Link href={applied ? "/programs/ambassador/application" : p.cta.href} />}
                     >
                       {applied ? "View application" : p.cta.label} <ArrowRight className="size-3.5" />
                     </Button>

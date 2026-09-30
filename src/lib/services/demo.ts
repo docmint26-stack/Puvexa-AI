@@ -353,7 +353,7 @@ export class DemoAmbassadorService implements AmbassadorService {
         "Application already on file",
         `You already submitted an application (${existing.applicationId}).`,
         "case",
-        "/programs/campus-ambassador"
+        "/programs/ambassador"
       );
       throw new AmbassadorSubmissionError(
         AMBASSADOR_ALREADY_APPLIED,
@@ -377,7 +377,7 @@ export class DemoAmbassadorService implements AmbassadorService {
       "Ambassador Program application submitted",
       `Your application ${record.applicationId} is under review.`,
       "case",
-      "/programs/campus-ambassador"
+      "/programs/ambassador"
     );
     return record;
   }

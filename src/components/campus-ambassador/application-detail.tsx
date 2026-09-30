@@ -54,7 +54,7 @@ export function ApplicationDetailView() {
         <p className="mt-2 text-sm text-muted-foreground">
           There is no Ambassador Program application saved on this device yet.
         </p>
-        <Button className="mt-6" render={<Link href="/programs/campus-ambassador/apply" />}>
+        <Button className="mt-6" render={<Link href="/programs/ambassador/apply" />}>
           Start your application <ArrowRight className="size-4" />
         </Button>
       </div>
@@ -70,7 +70,7 @@ export function ApplicationDetailView() {
     <div className="mx-auto max-w-3xl">
       <button
         type="button"
-        onClick={() => router.push("/programs/campus-ambassador")}
+        onClick={() => router.push("/programs/ambassador")}
         className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
       >
         <ArrowLeft className="size-3.5" /> Back to program
