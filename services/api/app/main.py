@@ -27,6 +27,13 @@ settings = get_settings()
 async def lifespan(app):
     if settings.app_env == "production" and (not settings.database_url.startswith("postgresql") or not settings.supabase_url or "*" in settings.cors_origins):
         raise RuntimeError("Production requires PostgreSQL, Supabase authentication, and explicit CORS origins.")
+    from app.core.chain_guard import assert_chain_allowed
+
+    try:
+        assert_chain_allowed(settings.web3_chain_id)
+    except APIError as exc:
+        # Fail safe at startup: a mis-configured mainnet chain id never boots the API.
+        raise RuntimeError(f"Refusing to start: {exc.code} — {exc.message}") from exc
     yield
     await engine.dispose()
 
@@ -152,17 +159,30 @@ async def ready():
     checks["chain"] = "disabled"
     checks["contracts"] = "disabled"
     if settings.web3_claim_enabled:
-        checks["chain"] = "unreachable"
-        checks["contracts"] = "invalid"
-        if settings.web3_testnet_rpc_url:
-            try:
-                from web3 import HTTPProvider, Web3
+        from app.core.chain_guard import assert_chain_allowed
 
-                checks["chain"] = "ok" if Web3(HTTPProvider(settings.web3_testnet_rpc_url, request_kwargs={"timeout": 3})).is_connected() else "unreachable"
-            except Exception:
-                checks["chain"] = "unreachable"
-        addresses = [settings.web3_token_address, settings.web3_distributor_address, settings.web3_stake_vault_address, settings.web3_registry_address]
-        checks["contracts"] = "ok" if addresses and all(a.startswith("0x") and len(a) in (42, 40) for a in addresses) and all(a for a in addresses) else "invalid"
+        try:
+            assert_chain_allowed(settings.web3_chain_id)
+        except APIError:
+            # Mainnet / unsupported chain id: report it honestly instead of probing.
+            checks["chain"] = "blocked"
+            checks["contracts"] = "invalid"
+        else:
+            checks["chain"] = "unreachable"
+            checks["contracts"] = "invalid"
+            if settings.web3_testnet_rpc_url:
+                try:
+                    from web3 import HTTPProvider, Web3
+
+                    checks["chain"] = "ok" if Web3(HTTPProvider(settings.web3_testnet_rpc_url, request_kwargs={"timeout": 3})).is_connected() else "unreachable"
+                except Exception:
+                    checks["chain"] = "unreachable"
+            addresses = [settings.web3_token_address, settings.web3_distributor_address, settings.web3_stake_vault_address, settings.web3_registry_address]
+
+            def _addr_ok(value: str) -> bool:
+                return bool(value) and len(value) == 42 and value.startswith("0x") and all(c in "0123456789abcdefABCDEF" for c in value[2:])
+
+            checks["contracts"] = "ok" if all(_addr_ok(a) for a in addresses) else "invalid"
 
     critical = checks["database"] == "ok"
     return JSONResponse(

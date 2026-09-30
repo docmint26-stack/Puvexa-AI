@@ -207,7 +207,9 @@ class Chain:
 # Backend app driver (in-process ASGI, auth stubbed)
 # ---------------------------------------------------------------------------
 
-def configure_backend_env(db_path: Path, addresses: dict, signer_key: str) -> None:
+def configure_backend_env(db_path: Path, addresses: dict, signer_key: str, deployer_key: str) -> None:
+    from eth_account import Account
+
     os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{db_path.as_posix()}"
     os.environ["APP_ENV"] = "development"
     os.environ["AI_PROVIDER"] = "unconfigured"
@@ -224,6 +226,12 @@ def configure_backend_env(db_path: Path, addresses: dict, signer_key: str) -> No
     os.environ["WEB3_STAKE_VAULT_ADDRESS"] = addresses["stakeVault"]
     os.environ["WEB3_REGISTRY_ADDRESS"] = addresses["registry"]
     os.environ["WEB3_REWARD_SIGNER_PRIVATE_KEY"] = signer_key
+    # Local harness: the deployer is the admin, the StakeVault OPERATOR_ROLE holder and the
+    # registry ANCHOR_ROLE holder (Deploy.s.sol defaults PUVEXA_ADMIN/PUVEXA_ANCHOR to msg.sender).
+    # Slash is exercised by scenario 6, so the admin policy is enabled on local only.
+    os.environ["WEB3_OPERATOR_ADDRESS"] = Account.from_key(deployer_key).address
+    os.environ["WEB3_SLASH_ENABLED"] = "true"
+    os.environ["WEB3_REGISTRY_ANCHOR_PRIVATE_KEY"] = deployer_key
     os.environ["ALLOW_MAINNET_DEPLOYMENT"] = "false"
 
 
@@ -326,7 +334,7 @@ async def run():
         # 1. Backend up (fresh sqlite)
         temp = Path(tempfile.mkdtemp(prefix="puvexa-e2e-"))
         db_path = temp / "e2e.db"
-        configure_backend_env(db_path, addresses, SIGNER_KEY)
+        configure_backend_env(db_path, addresses, SIGNER_KEY, DEPLOYER_KEY)
 
         from sqlalchemy.ext.asyncio import create_async_engine
 

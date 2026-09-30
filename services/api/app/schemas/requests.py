@@ -182,3 +182,10 @@ class CampusAmbassadorApplicationPatch(StrictModel):
     availability_months: int | None = Field(default=None, ge=1, le=24)
     timezone: str | None = Field(default=None, min_length=1, max_length=120)
     resources_needed: str | None = Field(default=None, min_length=10, max_length=5000)
+
+
+class Web3RegistryAnchorCreate(StrictModel):
+    contribution_id: str = Field(min_length=4, max_length=255)
+    wallet_address: str = Field(min_length=20, max_length=200)
+    content_hash: str | None = Field(default=None, min_length=2, max_length=66)
+    version_hash: str | None = Field(default=None, min_length=2, max_length=66)

@@ -19,6 +19,7 @@ from eth_hash.auto import keccak
 from hexbytes import HexBytes
 from web3 import AsyncHTTPProvider, AsyncWeb3
 
+from app.core.chain_guard import assert_chain_allowed
 from app.core.config import get_settings
 from app.core.exceptions import APIError
 from app.db.models import Web3Transaction
@@ -38,12 +39,51 @@ CLAIM_PAID_EVENT = "ClaimPaid(bytes32,address,uint256,uint256)"
 STAKED_EVENT = "Staked(bytes32,address,uint256)"
 RELEASED_EVENT = "Released(bytes32,address,uint256)"
 SLASHED_EVENT = "Slashed(bytes32,address,uint256,uint256)"
+ANCHORED_EVENT = "ContributionRegistered(bytes32,bytes32,bytes32,address,uint32)"
 CLAIM_PAID_TOPIC0 = keccak(b"ClaimPaid(bytes32,address,uint256,uint256)")
 STAKED_TOPIC0 = keccak(b"Staked(bytes32,address,uint256)")
 RELEASED_TOPIC0 = keccak(b"Released(bytes32,address,uint256)")
 SLASHED_TOPIC0 = keccak(b"Slashed(bytes32,address,uint256,uint256)")
+ANCHORED_TOPIC0 = keccak(b"ContributionRegistered(bytes32,bytes32,bytes32,address,uint32)")
 
 WEI = 10**18
+
+# Minimal ABI used by the backend for registry anchoring (no user content ever goes on-chain).
+REGISTRY_ABI = [
+    {
+        "name": "registerProof",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "contributionId", "type": "bytes32"},
+            {"name": "contentHash", "type": "bytes32"},
+            {"name": "versionHash", "type": "bytes32"},
+            {"name": "wallet", "type": "address"},
+        ],
+        "outputs": [],
+    },
+    {
+        "name": "proofOf",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "contributionId", "type": "bytes32"}],
+        "outputs": [
+            {
+                "name": "",
+                "type": "tuple",
+                "components": [
+                    {"name": "contentHash", "type": "bytes32"},
+                    {"name": "versionHash", "type": "bytes32"},
+                    {"name": "wallet", "type": "address"},
+                    {"name": "timestamp", "type": "uint256"},
+                    {"name": "version", "type": "uint32"},
+                    {"name": "anchored", "type": "bool"},
+                ],
+            }
+        ],
+    },
+]
+
 
 
 class Web3ConfigError(APIError):
@@ -267,8 +307,31 @@ class Web3EconomyService:
             raise APIError(503, "WEB3_CONTRACTS_UNCONFIGURED", "Token/distributor contracts are not configured.")
         if self.signer is None:
             raise APIError(503, "WEB3_SIGNER_UNCONFIGURED", "Reward signer key is not configured.")
-        if not self.settings.allow_mainnet_deployment and self.settings.web3_chain_id == 0:
-            raise APIError(503, "WEB3_MAINNET_DISABLED", "Mainnet deployment is disabled in this environment.")
+        # Mainnet (and any other unsupported network) is rejected before anything is signed.
+        assert_chain_allowed(self.settings.web3_chain_id)
+
+    def _ensure_chain_id_allowed(self, chain_id: int | None) -> int:
+        """Validates a client-supplied chain id before it enters an EIP-712 domain."""
+        value = chain_id if chain_id is not None else self.settings.web3_chain_id
+        return assert_chain_allowed(value)
+
+    def _ensure_registry_config(self) -> None:
+        if not self.settings.web3_registry_address:
+            raise APIError(503, "WEB3_REGISTRY_UNCONFIGURED", "Contribution registry contract is not configured.")
+        if not self.settings.web3_registry_anchor_private_key:
+            raise APIError(503, "WEB3_ANCHOR_SIGNER_UNCONFIGURED", "Registry anchor signer is not configured.")
+
+    def _ensure_operator_config(self) -> str:
+        """Release/slash receipts must come from the trusted operator account."""
+        if not self.settings.web3_operator_address:
+            raise APIError(503, "WEB3_OPERATOR_UNCONFIGURED", "Trusted verifier (operator) address is not configured.")
+        return normalize_address(self.settings.web3_operator_address)
+
+    @staticmethod
+    def _receipt_sender(receipt: dict) -> str:
+        value = receipt.get("from") or receipt.get("from_address") or ""
+        return normalize_address(str(value)) if value else ""
+
 
     def token_config(self) -> dict:
         return {
@@ -306,6 +369,8 @@ class Web3EconomyService:
 
         self._ensure_enabled()
         self._ensure_chain_config()
+        # Validate the client-supplied chain id before it can reach the reward ledger.
+        chain = self._ensure_chain_id_allowed(chain_id)
 
         from sqlalchemy import select
 
@@ -330,7 +395,6 @@ class Web3EconomyService:
                 raise APIError(409, "REWARD_ALREADY_CLAIMED", "This reward has already been finalized.")
             raise APIError(409, "REWARD_ALREADY_RESERVED", "This reward already has a prepared claim.")
 
-        chain = chain_id or self.settings.web3_chain_id
         verifying_contract = normalize_address(self.settings.web3_distributor_address)
         token_address = normalize_address(self.settings.web3_token_address)
 
@@ -391,6 +455,7 @@ class Web3EconomyService:
 
         self._ensure_enabled()
         self._ensure_chain_config()
+        self._ensure_chain_id_allowed(chain_id)
 
         claim = await self.db.scalar(select(ClaimReservation).where(ClaimReservation.claim_id == claim_id, ClaimReservation.user_id == user_id))
         if not claim:
@@ -464,6 +529,7 @@ class Web3EconomyService:
         """Verifies a Staked event and records the transaction (no DB staking state yet)."""
         self._ensure_enabled()
         self._ensure_chain_config()
+        chain = self._ensure_chain_id_allowed(chain_id)
         if not self.settings.web3_stake_vault_address:
             raise APIError(503, "WEB3_STAKE_VAULT_UNCONFIGURED", "Stake vault contract is not configured.")
 
@@ -490,7 +556,7 @@ class Web3EconomyService:
                     user_id=user_id,
                     tx_type="stake",
                     tx_hash=th,
-                    chain_id=chain_id or self.settings.web3_chain_id,
+                    chain_id=chain,
                     status="confirmed",
                     from_address=normalize_address(wallet_address),
                     to_address=normalize_address(self.settings.web3_stake_vault_address),
@@ -516,13 +582,24 @@ class Web3EconomyService:
             raise APIError(422, "INVALID_SETTLEMENT_KIND", "Settlement kind must be release or slash.")
         self._ensure_enabled()
         self._ensure_chain_config()
+        chain = self._ensure_chain_id_allowed(chain_id)
         if not self.settings.web3_stake_vault_address:
             raise APIError(503, "WEB3_STAKE_VAULT_UNCONFIGURED", "Stake vault contract is not configured.")
+
+        # Only the trusted verifier may broadcast release/slash, and slash additionally
+        # requires an explicit admin policy switch. AI never gets a path to either.
+        operator = self._ensure_operator_config()
+        if kind == "slash" and not self.settings.web3_slash_enabled:
+            raise APIError(403, "WEB3_SLASH_DISABLED", "Controlled slash is disabled by admin policy.")
 
         cid = contribution_id.lower()
         receipt = await self.chain.get_receipt(tx_hash)
         if receipt.get("status") != 1:
             raise APIError(422, "WEB3_TX_FAILED", "The on-chain transaction reverted.")
+
+        sender = self._receipt_sender(receipt)
+        if sender != operator:
+            raise APIError(403, "WEB3_OPERATOR_MISMATCH", "Settlement must be broadcast by the trusted verifier.")
 
         vault = normalize_address(self.settings.web3_stake_vault_address)
         th = str(tx_hash).strip().lower()
@@ -551,7 +628,7 @@ class Web3EconomyService:
                     user_id=user_id,
                     tx_type=tx_type,
                     tx_hash=th,
-                    chain_id=chain_id or self.settings.web3_chain_id,
+                    chain_id=chain,
                     status="confirmed",
                     from_address=vault,
                     to_address=wallet,
@@ -562,7 +639,7 @@ class Web3EconomyService:
         audit(self.db, user_id, f"web3_stake_{kind}", "web3_transaction", None)
         logger.info(
             "web3_stake_settlement_confirmed",
-            extra={"fields": {"kind": kind, "contribution_id": cid, "tx_hash": th, "status": "confirmed", "chain_id": chain_id or self.settings.web3_chain_id}},
+            extra={"fields": {"kind": kind, "contribution_id": cid, "tx_hash": th, "status": "confirmed", "chain_id": chain}},
         )
         await self.db.flush()
         return {
@@ -573,3 +650,174 @@ class Web3EconomyService:
             "slashed_wei": str(slashed),
             "returned_wei": str(returned),
         }
+    # ------------------------------------------------------------------
+    # Contribution Registry anchoring (privacy-safe proofs only)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _contribution_id_bytes(contribution_id: str) -> str:
+        """Canonical 0x-prefixed bytes32 for a contribution identifier."""
+        raw = (contribution_id or "").strip()
+        if not raw:
+            raise APIError(422, "INVALID_CONTRIBUTION_ID", "Contribution id is required.")
+        if raw.startswith("0x") and len(raw) == 66:
+            try:
+                bytes.fromhex(raw[2:])
+            except ValueError as exc:
+                raise APIError(422, "INVALID_CONTRIBUTION_ID", "Contribution id must be hex.") from exc
+            return raw.lower()
+        return "0x" + keccak(raw.encode()).hex()
+
+    @staticmethod
+    def _hash32(value: str, fallback_seed: str) -> str:
+        """Validates a 32-byte hash, or derives one from a non-sensitive seed."""
+        cleaned = (value or "").strip().lower()
+        if not cleaned:
+            return "0x" + keccak(fallback_seed.encode()).hex()
+        if not cleaned.startswith("0x"):
+            cleaned = "0x" + cleaned
+        if len(cleaned) != 66:
+            raise APIError(422, "INVALID_PROOF_HASH", "Proof hashes must be 32-byte hex values.")
+        try:
+            bytes.fromhex(cleaned[2:])
+        except ValueError as exc:
+            raise APIError(422, "INVALID_PROOF_HASH", "Proof hashes must be hex.") from exc
+        return cleaned
+
+    async def anchor_proof(
+        self,
+        *,
+        contribution_id: str,
+        wallet_address: str,
+        content_hash: str | None = None,
+        version_hash: str | None = None,
+        user_id: str,
+    ) -> dict:
+        """Anchors a privacy-safe contribution proof on the testnet registry.
+
+        Only identifiers and hashes are ever written on-chain � no screenshots, logs,
+        source code, e-mail, or problem text. The backend broadcasts with the ANCHOR_ROLE
+        key; users never need gas, and no AI model is involved.
+        """
+        self._ensure_enabled()
+        self._ensure_chain_config()
+        self._ensure_registry_config()
+        self._ensure_chain_id_allowed(None)
+
+        cid = self._contribution_id_bytes(contribution_id)
+        content = self._hash32(content_hash, f"puvexa:content:{cid}")
+        version = self._hash32(version_hash, f"puvexa:version:{cid}:1")
+        wallet = normalize_address(wallet_address)
+
+        registry = normalize_address(self.settings.web3_registry_address)
+        w3 = self.chain._web3()
+        contract = w3.eth.contract(address=registry, abi=REGISTRY_ABI)
+
+        existing = await self.read_proof(contribution_id=contribution_id, check_config=False)
+        if existing.get("anchored"):
+            raise APIError(409, "REGISTRY_ALREADY_ANCHORED", "This contribution proof is already anchored.")
+
+        account = Account.from_key(self.settings.web3_registry_anchor_private_key)
+        try:
+            tx = await contract.functions.registerProof(cid, content, version, wallet).build_transaction(
+                {
+                    "from": account.address,
+                    "chainId": int(self.settings.web3_chain_id),
+                    "nonce": await w3.eth.get_transaction_count(account.address),
+                }
+            )
+            signed = account.sign_transaction(tx)
+            raw = getattr(signed, "raw_transaction", None) or getattr(signed, "rawTransaction")
+            tx_hash = await w3.eth.send_raw_transaction(raw)
+            receipt = await w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+        except APIError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("registry_anchor_failed", extra={"fields": {"error_type": type(exc).__name__}})
+            raise APIError(502, "WEB3_ANCHOR_FAILED", "The registry anchor transaction could not be sent.") from exc
+
+        if receipt.get("status") != 1:
+            raise APIError(422, "WEB3_TX_FAILED", "The on-chain registry transaction reverted.")
+
+        topic0 = self.chain._topic0(ANCHORED_EVENT)
+        found = False
+        for log in receipt.get("logs", []):
+            topics = log.get("topics", [])
+            if len(topics) >= 2 and topics[0].hex() == topic0 and topics[1].hex() == cid[2:].lower():
+                found = True
+                break
+        if not found:
+            raise APIError(422, "WEB3_REGISTRY_EVENT_MISSING", "ContributionRegistered event not found.")
+
+        th = "0x" + HexBytes(tx_hash).hex()
+
+        from sqlalchemy import select as _select
+
+        existing_tx = await self.db.scalar(_select(Web3Transaction).where(Web3Transaction.tx_hash == th))
+        if not existing_tx:
+            self.db.add(
+                Web3Transaction(
+                    user_id=user_id,
+                    tx_type="registry_anchor",
+                    tx_hash=th,
+                    chain_id=int(self.settings.web3_chain_id),
+                    status="confirmed",
+                    from_address=normalize_address(account.address),
+                    to_address=registry,
+                    block_number=receipt.get("blockNumber"),
+                    confirmed_at=datetime.now(UTC),
+                )
+            )
+        audit(self.db, user_id, "web3_registry_anchored", "web3_transaction", None)
+        logger.info(
+            "web3_registry_anchored",
+            extra={"fields": {"contribution_id": cid, "tx_hash": th, "chain_id": int(self.settings.web3_chain_id)}},
+        )
+        await self.db.flush()
+
+        return {
+            "status": "anchored",
+            "contribution_id": cid,
+            "content_hash": content,
+            "version_hash": version,
+            "wallet": wallet,
+            "tx_hash": th,
+            "block_number": receipt.get("blockNumber"),
+        }
+
+    async def read_proof(self, *, contribution_id: str, check_config: bool = True) -> dict:
+        """Reads a proof straight from the registry contract (no trust in local state)."""
+        if check_config:
+            self._ensure_enabled()
+            self._ensure_chain_config()
+            self._ensure_registry_config()
+        elif not self.settings.web3_registry_address:
+            raise APIError(503, "WEB3_REGISTRY_UNCONFIGURED", "Contribution registry contract is not configured.")
+
+        cid = self._contribution_id_bytes(contribution_id)
+        w3 = self.chain._web3()
+        contract = w3.eth.contract(address=normalize_address(self.settings.web3_registry_address), abi=REGISTRY_ABI)
+        try:
+            result = await contract.functions.proofOf(cid).call()
+        except Exception as exc:  # noqa: BLE001
+            raise APIError(502, "WEB3_REGISTRY_READ_FAILED", "The registry proof could not be read.") from exc
+
+        content_hash, version_hash, wallet, timestamp, version, anchored = result
+        return {
+            "anchored": bool(anchored),
+            "contribution_id": cid,
+            "content_hash": self._hex32(content_hash),
+            "version_hash": self._hex32(version_hash),
+            "wallet": normalize_address(wallet) if wallet else "",
+            "timestamp": int(timestamp),
+            "version": int(version),
+        }
+
+    @staticmethod
+    def _hex32(value) -> str:
+        """Normalises a bytes32 read from the node into a 0x-prefixed hex string."""
+        if isinstance(value, (bytes, bytearray)):
+            return "0x" + bytes(value).hex()
+        text = str(value)
+        if not text.startswith("0x"):
+            text = "0x" + text
+        return text.lower()

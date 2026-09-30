@@ -43,6 +43,8 @@ interface WalletMeta {
   ring: string;
   description: string;
   tip: string;
+  /** False when this build has no connector for the wallet — must show Coming Soon. */
+  supported: boolean;
 }
 
 const WALLETS: WalletMeta[] = [
@@ -54,6 +56,7 @@ const WALLETS: WalletMeta[] = [
     ring: "border-orange-400/30",
     description: "The most widely used browser wallet.",
     tip: "Approve the popup in the MetaMask extension — one connection, then one short signature.",
+    supported: true,
   },
   {
     id: "okx",
@@ -63,6 +66,7 @@ const WALLETS: WalletMeta[] = [
     ring: "border-cyan-400/30",
     description: "Browser extension with built-in cross-chain swap.",
     tip: "Open the OKX extension and approve the pairing. A signature verifies ownership on Puvexa.",
+    supported: false,
   },
   {
     id: "tokenPocket",
@@ -72,6 +76,7 @@ const WALLETS: WalletMeta[] = [
     ring: "border-blue-400/30",
     description: "Multi-chain wallet for desktop and mobile.",
     tip: "Scan the QR code in the mobile app or approve the browser extension request.",
+    supported: false,
   },
   {
     id: "imToken",
@@ -81,6 +86,7 @@ const WALLETS: WalletMeta[] = [
     ring: "border-indigo-400/30",
     description: "Self-custodial wallet trusted by millions.",
     tip: "Approve the connection in imToken and confirm the ownership signature.",
+    supported: false,
   },
   {
     id: "walletConnect",
@@ -90,6 +96,7 @@ const WALLETS: WalletMeta[] = [
     ring: "border-slate-300/30",
     description: "Connect any mobile wallet via QR or deep link.",
     tip: "A QR code opens — scan it with any WalletConnect-ready app to link this session.",
+    supported: false,
   },
   {
     id: "all",
@@ -99,6 +106,7 @@ const WALLETS: WalletMeta[] = [
     ring: "border-violet-400/30",
     description: "Browse 500+ supported wallets.",
     tip: "Pick your wallet from the full directory. Puvexa connects through WalletConnect or injected providers.",
+    supported: false,
   },
 ];
 
@@ -162,7 +170,7 @@ function WalletOptionList({
     <div className="space-y-1.5">
       {WALLETS.map((w) => {
         const active = selected === w.id;
-        const isConnecting = busy && active;
+        const isConnecting = busy && active && w.supported;
         return (
           <button
             key={w.id}
@@ -192,19 +200,20 @@ function WalletOptionList({
               <span className="block truncate text-sm font-medium text-foreground">{w.name}</span>
               <span className="block truncate text-[11px] text-muted-foreground">{w.description}</span>
             </span>
-            {w.id === "all" && (
-              <span className="shrink-0 rounded-full border border-border bg-muted/40 px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground">
-                500+
-              </span>
-            )}
-            {isConnecting ? (
-              <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
-            ) : active ? (
-              <span className="grid size-5 shrink-0 place-items-center rounded-full border border-primary bg-primary text-primary-foreground">
-                <Check className="size-3" />
-              </span>
+            {w.supported ? (
+              isConnecting ? (
+                <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+              ) : active ? (
+                <span className="grid size-5 shrink-0 place-items-center rounded-full border border-primary bg-primary text-primary-foreground">
+                  <Check className="size-3" />
+                </span>
+              ) : (
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
+              )
             ) : (
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
+              <span className="shrink-0 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Coming Soon
+              </span>
             )}
           </button>
         );
@@ -531,6 +540,12 @@ function ModalFrame({ onClose }: { onClose: () => void }) {
   const onConnect = async (id: WalletId) => {
     setSelected(id);
     setError(null);
+    const meta = WALLETS.find((w) => w.id === id);
+    if (meta && !meta.supported) {
+      // No connector exists for this wallet in this build — never pretend it works.
+      setNotice(`${meta.name} is coming soon. Connect with MetaMask to continue today.`);
+      return;
+    }
     setBusy(true);
     setPickOverride(false);
     if (config.mode === "demo") {
@@ -541,11 +556,7 @@ function ModalFrame({ onClose }: { onClose: () => void }) {
       if (finalStatus !== "verified") setNotice("Demo connection finished without reaching verified status.");
       return;
     }
-    if (id !== "metaMask" && id !== "walletConnect" && id !== "all") {
-      setNotice("This build connects via the injected MetaMask provider — it will be used instead.");
-    } else {
-      setNotice("Confirm the connection and signature in your wallet.");
-    }
+    setNotice("Confirm the connection and signature in your wallet.");
     const result = await connectAndVerify();
     setNotice(null);
     setBusy(false);

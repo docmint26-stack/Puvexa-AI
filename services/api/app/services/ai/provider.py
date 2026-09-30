@@ -724,6 +724,10 @@ class OpenAIProvider:
 
     async def analyze_image(self, image_bytes: bytes, mime_type: str, prompt: str = "") -> tuple[ImageAnalysis, AIRunMetrics]:
         start = time.perf_counter()
+        if get_settings().ai_provider != "openai":
+            # Never transmit user screenshots to an endpoint the deployment has
+            # not configured — and never fall back to mock analysis.
+            raise APIError(422, "AI_PROVIDER_NOT_CONFIGURED", "AI diagnosis engine is not configured in this environment.")
         if mime_type not in ("image/png", "image/jpeg", "image/webp"):
             raise APIError(422, "INVALID_MEDIA_TYPE", "Image evidence must be PNG, JPEG, or WebP.")
         if not image_bytes or len(image_bytes) > 10 * 1024 * 1024:
@@ -767,6 +771,10 @@ class OpenAIProvider:
         start = time.perf_counter()
         cleaned = redact_secrets(log_text)[0][:get_settings().ai_max_evidence_chars]
         det = process_logs(cleaned)
+        if get_settings().ai_provider != "openai":
+            # Not configured: return the real local parser results only — never a
+            # fabricated LLM hypothesis, never an outbound request.
+            return asdict(det), AIRunMetrics(provider="deterministic", model="log-parser")
         system = (
             "You are an expert diagnostics engineer. The logs are pre-cleaned: secrets redacted, repeated lines "
             "compacted, error signatures extracted. Identify the root cause and the single most useful next step.\n"

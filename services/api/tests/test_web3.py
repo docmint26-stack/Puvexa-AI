@@ -13,6 +13,7 @@ Covers:
 """
 from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 from eth_account import Account
@@ -35,6 +36,9 @@ from app.services.web3_economy import (
 TOKEN = "0x1111111111111111111111111111111111111111"
 DISTRIBUTOR = "0x2222222222222222222222222222222222222222"
 VAULT = "0x3333333333333333333333333333333333333333"
+REGISTRY = "0x4444444444444444444444444444444444444444"
+# Trusted verifier (StakeVault OPERATOR_ROLE) that must broadcast release/slash.
+OPERATOR = "0x5555555555555555555555555555555555555555"
 SIGNER_KEY = "0x1111111111111111111111111111111111111111111111111111111111111111"
 WALLET = "0x00000000000000000000000000000000000000Ad"
 
@@ -47,7 +51,11 @@ def enable_web3(monkeypatch):
     monkeypatch.setattr(settings, "web3_token_address", TOKEN)
     monkeypatch.setattr(settings, "web3_distributor_address", DISTRIBUTOR)
     monkeypatch.setattr(settings, "web3_stake_vault_address", VAULT)
+    monkeypatch.setattr(settings, "web3_registry_address", REGISTRY)
+    monkeypatch.setattr(settings, "web3_registry_anchor_private_key", SIGNER_KEY)
     monkeypatch.setattr(settings, "web3_reward_signer_private_key", SIGNER_KEY)
+    monkeypatch.setattr(settings, "web3_operator_address", OPERATOR)
+    monkeypatch.setattr(settings, "web3_slash_enabled", True)
     monkeypatch.setattr(settings, "allow_mainnet_deployment", False)
     return settings
 
@@ -96,8 +104,8 @@ def slashed_log(contribution_id, wallet, slashed_wei, returned_wei):
     }
 
 
-def receipt_with(logs, status=1, block=42):
-    return {"status": status, "logs": logs, "blockNumber": block, "to": DISTRIBUTOR}
+def receipt_with(logs, status=1, block=42, sender=OPERATOR):
+    return {"status": status, "logs": logs, "blockNumber": block, "to": DISTRIBUTOR, "from": sender}
 
 
 def patch_chain_receipt(monkeypatch, receipt_fn):
@@ -629,3 +637,339 @@ async def test_eip191_verifier_recovers_signer_and_rejects_forgeries():
     assert await verifier.verify_signed_message(address, message, signature) is True
     assert await verifier.verify_signed_message(address, message + "-tampered", signature) is False
     assert await verifier.verify_signed_message(address, message, "0x" + "00" * 65) is False
+
+# ---------------------------------------------------------------------------
+# Phase 5 closeout: settlement authorization, registry anchoring, royalty reuse
+# ---------------------------------------------------------------------------
+
+
+async def test_settlement_requires_trusted_operator(api, alice, monkeypatch):
+    api.set_identity(alice)
+    enable_web3(monkeypatch)
+    await ensure_profile(api, alice)
+    contribution_id = "0x" + "12" * 32
+
+    # A third party broadcast the release: the backend must refuse to settle it.
+    patch_chain_receipt(
+        monkeypatch,
+        lambda tx_hash: receipt_with(
+            [released_log(contribution_id, WALLET, 5 * 10**18)], block=144, sender="0x6666666666666666666666666666666666666666"
+        ),
+    )
+
+    resp = await api.client.post(
+        f"/api/v1/web3/stakes/{contribution_id}/release",
+        json={"tx_hash": "0x" + "ac" * 32, "chain_id": 31337},
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["error"]["code"] == "WEB3_OPERATOR_MISMATCH"
+
+    async with Session() as db:
+        txs = (await db.scalars(select(Web3Transaction).where(Web3Transaction.tx_type == "stake_release"))).all()
+        assert txs == []
+
+
+async def test_slash_requires_admin_policy(api, alice, monkeypatch):
+    api.set_identity(alice)
+    settings = enable_web3(monkeypatch)
+    monkeypatch.setattr(settings, "web3_slash_enabled", False)
+    await ensure_profile(api, alice)
+    contribution_id = "0x" + "12" * 32
+
+    patch_chain_receipt(
+        monkeypatch,
+        lambda tx_hash: receipt_with(
+            [slashed_log(contribution_id, WALLET, 3 * 10**18, 2 * 10**18)], block=200
+        ),
+    )
+
+    resp = await api.client.post(
+        f"/api/v1/web3/stakes/{contribution_id}/slash",
+        json={"tx_hash": "0x" + "ad" * 32, "chain_id": 31337},
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["error"]["code"] == "WEB3_SLASH_DISABLED"
+
+
+async def test_claim_prepare_refuses_mainnet_chain_id(api, alice, monkeypatch):
+    api.set_identity(alice)
+    await grant_claimable_reward(api, alice, monkeypatch)
+    await ensure_profile(api, alice)
+    await link_verified_wallet(alice.id)
+    async with Session() as db:
+        reward = (await db.scalars(select(RewardLedger))).all()[0]
+        reward_id = str(reward.id)
+
+    resp = await api.client.post(
+        "/api/v1/web3/claims/prepare",
+        json={"reward_id": reward_id, "wallet_address": WALLET, "chain_id": 56},
+    )
+    assert resp.status_code == 503, resp.text
+    assert resp.json()["error"]["code"] == "WEB3_MAINNET_DISABLED"
+
+
+async def test_claim_prepare_refuses_unknown_chain_id(api, alice, monkeypatch):
+    api.set_identity(alice)
+    await grant_claimable_reward(api, alice, monkeypatch)
+    await ensure_profile(api, alice)
+    await link_verified_wallet(alice.id)
+    async with Session() as db:
+        reward = (await db.scalars(select(RewardLedger))).all()[0]
+        reward_id = str(reward.id)
+
+    resp = await api.client.post(
+        "/api/v1/web3/claims/prepare",
+        json={"reward_id": reward_id, "wallet_address": WALLET, "chain_id": 4242},
+    )
+    assert resp.status_code == 503, resp.text
+    assert resp.json()["error"]["code"] == "WEB3_CHAIN_UNSUPPORTED"
+
+
+def _registry_cid(contribution_id: str) -> str:
+    if contribution_id.startswith("0x") and len(contribution_id) == 66:
+        return contribution_id.lower()
+    return "0x" + keccak(contribution_id.encode()).hex()
+
+
+class _FakeRegistryFn:
+    def __init__(self, name, state):
+        self._name = name
+        self._state = state
+
+    async def call(self):
+        assert self._name == "proofOf"
+        return (
+            HexBytes("0x" + "11" * 32),
+            HexBytes("0x" + "22" * 32),
+            WALLET,
+            1_700_000_000,
+            3,
+            self._state["anchored"],
+        )
+
+    async def build_transaction(self, base):
+        # Deliberately drops `base`: the fake node only needs a signable legacy tx.
+        return {
+            "nonce": 0,
+            "gasPrice": 1_000_000_000,
+            "gas": 250_000,
+            "to": self._state["registry"],
+            "value": 0,
+            "data": "0x01020304",
+            "chainId": self._state["chain_id"],
+        }
+
+
+class _FakeRegistryFunctions:
+    def __init__(self, state):
+        self._state = state
+
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        state = self._state
+        return lambda *args, **kwargs: _FakeRegistryFn(name, state)
+
+
+class _FakeRegistryEth:
+    def __init__(self, state):
+        self._state = state
+
+    def contract(self, address, abi):
+        return type("C", (), {"functions": _FakeRegistryFunctions(self._state)})()
+
+    async def get_transaction_count(self, address):
+        return 0
+
+    async def send_raw_transaction(self, raw):
+        return HexBytes("0x" + "cd" * 32)
+
+    async def wait_for_transaction_receipt(self, tx_hash, timeout=None):
+        from app.services.web3_economy import ANCHORED_TOPIC0
+
+        # A successful broadcast flips the on-chain proof to anchored, so a second
+        # anchor of the same contribution is refused by the node read.
+        self._state["anchored"] = True
+        return {
+            "status": 1,
+            "blockNumber": 99,
+            "from": "0x7777777777777777777777777777777777777777",
+            "logs": [
+                {
+                    "address": self._state["registry"],
+                    "topics": [HexBytes(ANCHORED_TOPIC0), HexBytes(self._state["cid"])],
+                    "data": HexBytes(b""),
+                }
+            ],
+        }
+
+
+def patch_registry_node(monkeypatch, contribution_id: str, *, anchored: bool = False):
+    from app.services.web3_economy import ChainVerifier
+
+    state = {"cid": _registry_cid(contribution_id), "anchored": anchored, "registry": REGISTRY, "chain_id": 31337}
+    fake = type("W3", (), {"eth": _FakeRegistryEth(state)})()
+    monkeypatch.setattr(ChainVerifier, "_web3", lambda self: fake)
+    return state
+
+
+async def test_registry_anchor_requires_verified_wallet(api, alice, monkeypatch):
+    api.set_identity(alice)
+    enable_web3(monkeypatch)
+    await ensure_profile(api, alice)
+    await link_verified_wallet(alice.id, status="pending")
+
+    resp = await api.client.post(
+        "/api/v1/web3/registry/anchor",
+        json={"contribution_id": "0x" + "12" * 32, "wallet_address": WALLET},
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["error"]["code"] == "WALLET_NOT_VERIFIED"
+
+
+async def test_registry_anchor_broadcasts_and_records(api, alice, monkeypatch):
+    api.set_identity(alice)
+    enable_web3(monkeypatch)
+    await ensure_profile(api, alice)
+    await link_verified_wallet(alice.id)
+    contribution_id = "0x" + "12" * 32
+    patch_registry_node(monkeypatch, contribution_id)
+
+    resp = await api.client.post(
+        "/api/v1/web3/registry/anchor",
+        json={"contribution_id": contribution_id, "wallet_address": WALLET},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["status"] == "anchored"
+    assert body["contribution_id"] == contribution_id
+    assert body["tx_hash"].startswith("0x")
+    assert body["block_number"] == 99
+
+    async with Session() as db:
+        txs = (await db.scalars(select(Web3Transaction).where(Web3Transaction.tx_type == "registry_anchor"))).all()
+        assert len(txs) == 1
+        assert txs[0].tx_hash == body["tx_hash"]
+
+    # Second anchor of the same contribution must be refused (idempotent).
+    resp = await api.client.post(
+        "/api/v1/web3/registry/anchor",
+        json={"contribution_id": contribution_id, "wallet_address": WALLET},
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["error"]["code"] == "REGISTRY_ALREADY_ANCHORED"
+
+
+async def test_registry_proof_is_readable_from_the_node(api, alice, monkeypatch):
+    api.set_identity(alice)
+    enable_web3(monkeypatch)
+    await ensure_profile(api, alice)
+    contribution_id = "0x" + "34" * 32
+    patch_registry_node(monkeypatch, contribution_id, anchored=True)
+
+    resp = await api.client.get(f"/api/v1/web3/registry/{contribution_id}")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["anchored"] is True
+    assert body["contribution_id"] == contribution_id
+    assert body["content_hash"] == "0x" + "11" * 32
+    assert body["wallet"] == WALLET.lower()
+
+
+async def _make_attributed_fix(*, owners):
+    from app.db.models import Fix, KnowledgeAttribution, Profile
+
+    fix_id = str(uuid4())
+    async with Session() as db:
+        for user_id in owners:
+            if await db.get(Profile, user_id) is None:
+                db.add(Profile(id=user_id, auth_user_id=user_id, display_name=f"Owner {user_id[:6]}"))
+        db.add(Fix(id=fix_id, title="Attributed fix", summary="Owned by contributors.", category="Coding Error", instructions=["step"]))
+        # Flush the parents first: the unit of work does not order these mappers.
+        await db.flush()
+        for user_id, share in owners.items():
+            db.add(
+                KnowledgeAttribution(
+                    fix_id=fix_id,
+                    contributor_user_id=user_id,
+                    ownership_share=Decimal(str(share)),
+                    attribution_type="creator",
+                )
+            )
+        await db.commit()
+    return fix_id
+
+
+async def test_knowledge_reuse_schedules_royalties(api, alice, bob, monkeypatch):
+    from app.core.security import Identity
+
+    api.set_identity(alice)
+    enable_web3(monkeypatch)
+    await ensure_profile(api, alice)
+    owners = {alice.id: Decimal("0.6"), bob.id: Decimal("0.4")}
+    fix_id = await _make_attributed_fix(owners=owners)
+    # A third account (not an owner) performs the reuse and earns nothing from it.
+    carol = Identity(id=str(uuid4()), email="carol@example.com", display_name="Carol")
+    await ensure_profile(api, carol)
+
+    resp = await api.client.post(f"/api/v1/knowledge/{fix_id}/reuse")
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["fix_id"] == fix_id
+    assert len(body["royalties"]) == 2
+    assert {r["user_id"] for r in body["royalties"]} == {alice.id, bob.id}
+    amounts = sorted(Decimal(r["amount"]) for r in body["royalties"])
+    assert amounts == [Decimal("1.2"), Decimal("1.8")]
+
+    async with Session() as db:
+        from app.db.models import Fix, RewardLedger
+
+        fix = await db.get(Fix, fix_id)
+        assert fix.reuse_count == 1
+        royalties = (await db.scalars(select(RewardLedger).where(RewardLedger.event_type == "royalty"))).all()
+        assert len(royalties) == 2
+        assert all(r.status == "claimable" for r in royalties)
+        assert {str(r.user_id) for r in royalties} == {alice.id, bob.id}
+
+
+async def test_knowledge_reuse_rejects_own_fix(api, alice, bob, monkeypatch):
+    api.set_identity(alice)
+    enable_web3(monkeypatch)
+    await ensure_profile(api, alice)
+    fix_id = await _make_attributed_fix(owners={alice.id: Decimal("1")})
+
+    resp = await api.client.post(f"/api/v1/knowledge/{fix_id}/reuse")
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["error"]["code"] == "REUSE_BY_CONTRIBUTOR"
+
+
+async def test_knowledge_reuse_is_rate_limited(api, alice, bob, monkeypatch):
+    api.set_identity(alice)
+    settings = enable_web3(monkeypatch)
+    monkeypatch.setattr(settings, "knowledge_reuse_rate_limit_per_day", 1)
+    await ensure_profile(api, alice)
+    fix_id = await _make_attributed_fix(owners={bob.id: Decimal("1")})
+
+    first = await api.client.post(f"/api/v1/knowledge/{fix_id}/reuse")
+    assert first.status_code == 201, first.text
+
+    second = await api.client.post(f"/api/v1/knowledge/{fix_id}/reuse")
+    assert second.status_code == 429, second.text
+    assert second.json()["error"]["code"] == "REUSE_RATE_LIMITED"
+
+
+async def test_knowledge_reuse_requires_attribution(api, alice, monkeypatch):
+    from app.db.models import Fix
+
+    api.set_identity(alice)
+    enable_web3(monkeypatch)
+    await ensure_profile(api, alice)
+
+    fix_id = str(uuid4())
+    async with Session() as db:
+        db.add(Fix(id=fix_id, title="Unattributed", summary="No owners recorded.", category="Coding Error", instructions=["step"]))
+        await db.commit()
+
+    resp = await api.client.post(f"/api/v1/knowledge/{fix_id}/reuse")
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["error"]["code"] == "FIX_NOT_ATTRIBUTED"

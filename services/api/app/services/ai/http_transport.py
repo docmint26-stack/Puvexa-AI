@@ -8,7 +8,16 @@ from app.core.exceptions import APIError
 
 
 async def provider_post(url: str, api_key: str, payload: dict, timeout: float):
+    """POSTs to the provider with bounded retries for transient failures.
+
+    429 and 5xx responses are retried (up to ``AI_RETRY_COUNT``) because they are
+    transient by definition; every other non-200 status fails immediately. The
+    provider's own error text is carried on the final safe message only — never
+    raw bodies beyond the truncated ``error.message`` field.
+    """
     attempts = get_settings().ai_retry_count + 1
+    code = "AI_PROVIDER_ERROR"
+    detail = ""
     for attempt in range(attempts):
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -28,12 +37,13 @@ async def provider_post(url: str, api_key: str, payload: dict, timeout: float):
             detail = (" " + detail.strip().replace("\n", " ")[:200]) if detail.strip() else ""
             code = "AI_PROVIDER_RATE_LIMIT" if response.status_code == 429 else "AI_PROVIDER_ERROR"
             if response.status_code < 500 and response.status_code != 429:
+                # Non-retryable client error (except rate limits): fail fast.
                 raise APIError(502, "AI_PROVIDER_ERROR", f"AI provider could not complete this request.{detail}") from None
-            raise APIError(502, code, f"AI provider could not complete this request.{detail}") from None
+            # 429 / 5xx are transient — fall through to the retry path below.
         except httpx.TimeoutException:
-            code = "AI_PROVIDER_TIMEOUT"
+            code, detail = "AI_PROVIDER_TIMEOUT", ""
         except httpx.RequestError:
-            code = "AI_PROVIDER_ERROR"
+            code, detail = "AI_PROVIDER_ERROR", ""
         if attempt + 1 == attempts:
-            raise APIError(502, code, "AI provider could not complete this request.")
+            raise APIError(502, code, f"AI provider could not complete this request.{detail}")
         await asyncio.sleep(min(0.25 * 2 ** attempt, 2))

@@ -13,6 +13,12 @@
 # testing
 /coverage
 
+# test & lint run logs
+/test-run.log
+/lint-run.log
+/build-run.log
+**/pytest-run.log
+
 # next.js
 /.next/
 /out/
@@ -53,3 +59,5 @@ next-env.d.ts
 /contracts/out/
 /contracts/cache/
 /contracts/deployments/
+# timestamped broadcast run artifacts (run-latest.json stays tracked)
+/contracts/broadcast/**/run-[0-9]*.json

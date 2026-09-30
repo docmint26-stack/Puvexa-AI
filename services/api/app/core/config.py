@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     min_success_rate_sample: int = 5
     ai_rate_limit_per_day: int = 50
     contribution_review_rate_limit_per_day: int = 20
+    knowledge_reuse_rate_limit_per_day: int = 20
     web3_claim_enabled: bool = False
     wallet_nonce_ttl_minutes: int = 15
     wallet_signature_verifier: str = "none"
@@ -68,11 +69,27 @@ class Settings(BaseSettings):
     web3_stake_vault_address: str = ""
     web3_registry_address: str = ""
     web3_reward_signer_private_key: str = ""
+    #: Public address holding StakeVault OPERATOR_ROLE. Settlement receipts must be
+    #: broadcast by this account; the backend never holds this key.
+    web3_operator_address: str = ""
+    #: Admin policy switch for the controlled slash path. Off by default: a slash can
+    #: only ever settle after an administrator explicitly enables it here.
+    web3_slash_enabled: bool = False
+    #: Backend key holding ContributionRegistry ANCHOR_ROLE. Used only to anchor
+    #: privacy-safe contribution proofs (hashes + wallet), never user content.
+    web3_registry_anchor_private_key: str = ""
+    #: Belt-and-braces switch. Kept False at all times; `scripts/bnb_testnet_probe.py`
+    #: fails if it is ever turned on. The chain guard refuses mainnet ids regardless.
     allow_mainnet_deployment: bool = False
 
     @property
     def issuer(self):
         return self.supabase_url.rstrip("/") + "/auth/v1"
+
+    @property
+    def mainnet_guard_enabled(self) -> bool:
+        """Mainnet is permanently disabled; this only reports the intended posture."""
+        return not self.allow_mainnet_deployment
 
 
 @lru_cache

@@ -16,6 +16,7 @@ from app.db.base import now
 from app.db.models import (
     AccountDeletionRequest,
     AIRun,
+    AuditEvent,
     CampusAmbassadorApplication,
     Case,
     CaseEvidence,
@@ -26,6 +27,7 @@ from app.db.models import (
     DiagnosisSource,
     Fix,
     FixAttempt,
+    KnowledgeAttribution,
     KnowledgeChunk,
     KnowledgeDocument,
     Notification,
@@ -59,6 +61,7 @@ from app.schemas.requests import (
     WalletVerifyCreate,
     Web3ClaimConfirmCreate,
     Web3ClaimPrepareCreate,
+    Web3RegistryAnchorCreate,
     Web3StakeCreate,
     Web3StakeSettleCreate,
 )
@@ -66,6 +69,7 @@ from app.services.ai.orchestrator import PuvexaIntelligenceService
 from app.services.ai.provider import get_ai_provider
 from app.services.attribution import AttributionService
 from app.services.claims import ClaimReservationService
+from app.services.rewards import grant_royalty
 from app.services.storage import get_storage, read_upload
 from app.services.verification.anti_abuse import ContributionAntiAbuseEngine
 from app.services.verification.learning import OutcomeLearningEngine
@@ -903,6 +907,104 @@ async def web3_transactions(db: DB, user: User, page: Page = 1, page_size: PageS
 @router.get("/web3/token")
 async def web3_token(db: DB, user: User):
     return Web3EconomyService(db).token_config()
+
+
+# ---- Phase 5: contribution registry anchoring (privacy-safe proofs only) ----
+
+
+@router.post("/web3/registry/anchor", status_code=201)
+async def web3_registry_anchor(body: Web3RegistryAnchorCreate, db: DB, user: User):
+    """Anchors hashes + wallet only. No screenshots, logs, source, or personal data."""
+    link = await db.scalar(select(WalletLink).where(WalletLink.user_id == user.id, WalletLink.wallet_address == body.wallet_address.lower()))
+    if link is None or link.status != "verified":
+        raise APIError(409, "WALLET_NOT_VERIFIED", "Verify this wallet before anchoring a proof.")
+    service = Web3EconomyService(db)
+    return await service.anchor_proof(
+        contribution_id=body.contribution_id,
+        wallet_address=body.wallet_address,
+        content_hash=body.content_hash,
+        version_hash=body.version_hash,
+        user_id=user.id,
+    )
+
+
+@router.get("/web3/registry/{contribution_id}")
+async def web3_registry_proof(contribution_id: str, db: DB, user: User):
+    return await Web3EconomyService(db).read_proof(contribution_id=contribution_id)
+
+
+# ---- Phase 5: attributed knowledge reuse -> royalty ledger ----
+
+ROYALTY_POOL_FIXAI = Decimal("3")
+
+
+@router.post("/knowledge/{fix_id}/reuse", status_code=201)
+async def knowledge_reuse(fix_id: UUID, db: DB, user: User):
+    """Records a legitimate reuse of an attributed fix and schedules royalties.
+
+    Royalties are split across the recorded ownership shares and always sized
+    server-side. The reusing account never earns from its own reuse, and the
+    amount is rate limited so the ledger cannot be pumped.
+    """
+    settings = get_settings()
+    fix = await db.get(Fix, str(fix_id))
+    if not fix:
+        raise APIError(404, "FIX_NOT_FOUND", "Fix not found.")
+
+    attributions = (
+        await db.scalars(
+            select(KnowledgeAttribution)
+            .where(KnowledgeAttribution.fix_id == str(fix_id))
+            .order_by(KnowledgeAttribution.created_at.asc())
+        )
+    ).all()
+    if not attributions:
+        raise APIError(409, "FIX_NOT_ATTRIBUTED", "This fix has no recorded attribution yet.")
+
+    contributors = {row.contributor_user_id: row for row in attributions}
+    if user.id in contributors:
+        raise APIError(409, "REUSE_BY_CONTRIBUTOR", "A contributor cannot collect a royalty for reusing their own fix.")
+
+    since = now() - timedelta(days=1)
+    recent = await db.scalar(
+        select(func.count())
+        .select_from(AuditEvent)
+        .where(AuditEvent.user_id == user.id, AuditEvent.action == "knowledge_reuse", AuditEvent.created_at >= since)
+    )
+    if int(recent or 0) >= settings.knowledge_reuse_rate_limit_per_day:
+        raise APIError(429, "REUSE_RATE_LIMITED", "Reuse limit reached for today. Try again tomorrow.")
+
+    usage_id = str(uuid4())
+    granted = []
+    for row in attributions:
+        share = Decimal(row.ownership_share)
+        if share <= 0:
+            continue
+        amount = (ROYALTY_POOL_FIXAI * share).quantize(Decimal("0.000001"))
+        if amount <= 0:
+            continue
+        reward, _created = await grant_royalty(
+            db,
+            usage_id=usage_id,
+            contributor_id=row.contributor_user_id,
+            amount=amount,
+            actor_user_id=user.id,
+        )
+        if reward is not None:
+            granted.append({"reward_id": str(reward.id), "user_id": row.contributor_user_id, "amount": str(amount)})
+
+    fix.reuse_count = int(fix.reuse_count or 0) + 1
+    audit(db, user.id, "knowledge_reuse", "fix", str(fix_id))
+    notify(
+        db,
+        user.id,
+        "Knowledge reuse recorded",
+        "Attribution was checked and royalties were scheduled for the contributors.",
+        kind="reward",
+        href="/rewards",
+    )
+    await db.flush()
+    return {"usage_id": usage_id, "fix_id": str(fix_id), "royalties": granted, "pool_fixai": str(ROYALTY_POOL_FIXAI)}
 
 
 # ---- Phase 4.5: admin contribution review ----
