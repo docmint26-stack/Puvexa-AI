@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowRight, Check, ExternalLink, FileText, Menu, X } from "lucide-react";
@@ -21,7 +22,7 @@ import { TopProblemsSection } from "@/components/landing/top-problems-section";
 import { ProgramsSection } from "@/components/landing/programs-section";
 import { useGuestStore } from "@/lib/state/guest";
 import { notify } from "@/lib/feedback";
-import { landingStats, howItWorksSteps, features, testimonials, tokenEconomy, heroRotating } from "@/lib/data";
+import { landingStats, howItWorksSteps, features, testimonials, tokenEconomy, heroRotating, investorsAndPartners } from "@/lib/data";
 import { avatarGradient } from "@/lib/format";
 
 const NAV_LINKS = [
@@ -181,7 +182,7 @@ export function LandingPage() {
             {landingStats.map((s) => (
               <div key={s.label}>
                 <p className="font-heading text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-                  <AnimatedCounter value={s.value} suffix={s.value >= 1000000 ? "M+" : s.value >= 10000 ? "+" : ""} />
+                  <AnimatedCounter value={s.value} suffix={s.suffix} />
                 </p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">{s.label}</p>
               </div>
@@ -314,6 +315,37 @@ export function LandingPage() {
 
       {/* Our Programs */}
       <ProgramsSection />
+
+      {/* Fundraising strategy */}
+      <section className="border-y border-border/50 bg-card/30">
+        <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+          <div className="flex flex-col gap-6 rounded-2xl border border-primary/20 bg-linear-to-br from-primary/10 via-card/50 to-cyan-400/10 p-8 sm:flex-row sm:items-end sm:justify-between sm:p-10">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">Fundraising strategy</p>
+              <h2 className="mt-2 font-heading text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+                Building the proof-of-help network
+              </h2>
+              <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
+                We are raising a seed round to scale verified diagnosis, grow the fixer network, and bring FIX to a wider community.
+              </p>
+            </div>
+            <div className="grid shrink-0 grid-cols-2 gap-3 sm:min-w-72">
+              <div className="rounded-xl border border-border/70 bg-card/70 p-4">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Seed round</p>
+                <p className="mt-1 font-heading text-2xl font-bold text-foreground">$1.5M</p>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-card/70 p-4">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Target valuation</p>
+                <p className="mt-1 font-heading text-2xl font-bold text-foreground">~$10M</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Investors & partners */}
+      <InvestorsAndPartnersSection />
+
 
       {/* Token economy */}
       <section id="token" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-20 sm:px-6">
@@ -516,5 +548,70 @@ export function LandingPage() {
         </div>
       </footer>
     </div>
+  );
+}
+
+export function InvestorsAndPartnersSection() {
+  return (
+    <section className="mx-auto max-w-6xl px-4 py-20 sm:px-6" aria-labelledby="investors-partners-heading">
+      <div className="text-center">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">Investors &amp; partners</p>
+        <h2 id="investors-partners-heading" className="mt-2 font-heading text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+          Backed by builders across the ecosystem
+        </h2>
+        <p className="mx-auto mt-3 max-w-xl text-sm text-muted-foreground">
+          Working with investors, launchpads, and ecosystem partners who believe verified help should compound.
+        </p>
+      </div>
+
+      <div className="mt-10 flex flex-wrap items-stretch justify-center gap-3">
+        {investorsAndPartners.map((partner, i) => (
+          <Reveal
+            key={partner.id}
+            delay={i * 0.04}
+            className="flex min-h-[168px] w-full min-[360px]:w-[calc(50%-6px)] sm:w-[calc(33.333%-8px)] lg:w-[calc(20%-9.6px)]"
+          >
+            <a
+              href={partner.website}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Visit ${partner.name} website`}
+              className={cn(
+                "group relative flex h-full w-full flex-col items-center justify-center gap-3 rounded-2xl border border-border/70 bg-card/50 p-5 text-center ring-1 ring-foreground/5",
+                "transition-[transform,box-shadow,border-color,background-color] duration-300 ease-out",
+                "hover:-translate-y-1 hover:border-primary/40 hover:bg-card hover:shadow-[0_18px_34px_-20px_rgba(139,92,246,0.8),0_10px_26px_-18px_rgba(249,115,22,0.6)]",
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                "motion-reduce:transition-none motion-reduce:hover:translate-y-0"
+              )}
+            >
+              <ExternalLink
+                aria-hidden="true"
+                className="absolute right-3 top-3 size-3.5 text-muted-foreground opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100"
+              />
+              <span
+                className={cn(
+                  "flex h-16 w-full max-w-[168px] items-center justify-center rounded-xl px-2 ring-1",
+                  partner.plate === "light" && "bg-white ring-foreground/10",
+                  partner.plate === "dark" && "bg-gray-950 ring-foreground/10 dark:bg-foreground/5",
+                  partner.plate === "neutral" && "bg-foreground/5 ring-foreground/10"
+                )}
+              >
+                <Image
+                  src={partner.logo}
+                  alt={`${partner.name} logo`}
+                  width={partner.width}
+                  height={partner.height}
+                  unoptimized
+                  loading="lazy"
+                  decoding="async"
+                  className={cn("h-auto w-auto max-h-12 max-w-full object-contain", partner.logoClassName)}
+                />
+              </span>
+              <span className="max-w-full text-[13px] font-medium leading-snug text-foreground/90">{partner.name}</span>
+            </a>
+          </Reveal>
+        ))}
+      </div>
+    </section>
   );
 }

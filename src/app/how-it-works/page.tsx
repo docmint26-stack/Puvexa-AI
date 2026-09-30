@@ -21,7 +21,7 @@ export default function HowItWorksPage() {
           {landingStats.map((s) => (
             <div key={s.label} className="rounded-xl border border-border/70 bg-card/60 px-3 py-3 text-center">
               <p className="font-heading text-lg font-bold tabular-nums text-foreground sm:text-xl">
-                {s.value.toLocaleString()}
+                {s.value.toLocaleString()}{s.suffix ?? ""}
               </p>
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
             </div>

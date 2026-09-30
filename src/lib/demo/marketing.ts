@@ -1,8 +1,8 @@
 export const landingStats = [
-  { label: "Problems diagnosed", value: 12480 },
-  { label: "Verified fixes", value: 8920 },
-  { label: "FIX rewarded", value: 2400000 },
-  { label: "Active contributors", value: 3850 },
+  { label: "Problems diagnosed", value: 40000 },
+  { label: "Problems solved", value: 2500, suffix: "+" },
+  { label: "Verified fixes", value: 2000 },
+  { label: "Contributors", value: 8700 },
 ];
 
 export const howItWorksSteps = [
