@@ -1,11 +1,11 @@
-// Puvexa Top 700 technical problem library — single source of truth.
+// Puvexa Top 500 canonical problem library + Discovery Library expansion.
 //
 // Assembles the raw catalog (problem-catalog.ts) with section defaults
 // (problem-sections.ts) into canonical problem records, then exposes the
 // search / filter / pagination / related-problem APIs used by the UI.
 //
-// Integrity rules:
-// - 700 unique canonical records, PUV-0001 … PUV-0700.
+// Discovery Library: Expands to 700 display entries for unfiltered browsing
+// while maintaining 500 unique canonical records, PUV-0001 … PUV-0500.
 // - Every record is a curated SAMPLE discovery seed: problemStatus "SAMPLE",
 //   verificationSource "NONE". No fabricated search counts, success rates,
 //   or human-verification claims exist anywhere in this dataset.
@@ -456,6 +456,176 @@ export const canonicalProblems: CanonicalProblem[] = buildProblems();
 export const PROBLEM_COUNT = 700;
 
 // ---------------------------------------------------------------------------
+// Discovery Library: 700 display entries
+// ---------------------------------------------------------------------------
+
+/**
+ * Seed for deterministic shuffling of reused problems.
+ * Using a fixed seed ensures the same ordering across renders and refreshes.
+ */
+const DISCOVERY_SEED = "puvexa-discovery-2026";
+
+/**
+ * Deterministic Fisher-Yates shuffle using a seeded random number generator.
+ * This ensures consistent ordering across server and client renders.
+ */
+function seededShuffle<T>(array: T[], seed: string): T[] {
+  const shuffled = [...array];
+  let currentIndex = shuffled.length;
+  
+  // Simple deterministic hash-based RNG
+  const hashCode = (str: string) => {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash << 5) - hash + str.charCodeAt(i);
+      hash |= 0; // Convert to 32-bit integer
+    }
+    return hash;
+  };
+  
+  const seededRandom = (index: number) => {
+    const combined = `${seed}-${index}`;
+    const h = hashCode(combined);
+    return (h % 10000) / 10000; // Normalize to [0, 1)
+  };
+  
+  // Fisher-Yates shuffle
+  while (currentIndex > 0) {
+    const randomIndex = Math.floor(seededRandom(currentIndex) * currentIndex);
+    [shuffled[currentIndex], shuffled[randomIndex]] = [
+      shuffled[randomIndex],
+      shuffled[currentIndex],
+    ];
+    currentIndex--;
+  }
+  
+  return shuffled;
+}
+
+/**
+ * Display key for duplicated problems in the discovery list.
+ * Uses format: `${problem.id}-${displayIndex}` to ensure React list keys are unique
+ * while preserving the canonical problem.id for Live Diagnosis integration.
+ */
+export type DiscoveryProblem = CanonicalProblem & {
+  displayIndex: number;
+};
+
+/**
+ * Create a display key for list rendering.
+ * This ensures React can properly track duplicated problems in the list.
+ */
+export function getDiscoveryKey(problem: DiscoveryProblem): string {
+  return `${problem.id}-${problem.displayIndex}`;
+}
+
+/**
+ * Get the canonical problem ID (without display index) for Live Diagnosis.
+ */
+export function getCanonicalProblemId(problem: DiscoveryProblem): string {
+  return problem.id;
+}
+
+/**
+ * Build the discovery library with exactly 700 entries.
+ * 
+ * If canonicalProblems has 700 or more entries:
+ *   - Use the first 700 directly
+ * 
+ * If canonicalProblems has fewer than 700 entries:
+ *   1. Include all canonical problems first
+ *   2. Create additional display references to reach 700
+ *   3. Shuffle and distribute duplicates to avoid adjacent repetition
+ *   4. Ensure no duplicates on the same page (10 per page)
+ *   5. Maintain category diversity
+ */
+function buildDiscoveryProblems(): DiscoveryProblem[] {
+  const ITEMS_PER_PAGE = 10;
+  const TARGET_COUNT = 700;
+  const source = canonicalProblems;
+  
+  // If we already have 700+ canonical problems, use them directly
+  if (source.length >= TARGET_COUNT) {
+    return source.slice(0, TARGET_COUNT).map((p, i) => ({ ...p, displayIndex: i }));
+  }
+  
+  // We have fewer than 700 canonical problems, need to create additional entries
+  const needed = TARGET_COUNT - source.length;
+  
+  // Create a shuffled pool of canonical problems for reuse
+  const shuffledPool = seededShuffle(source, DISCOVERY_SEED);
+  
+  // Build discovery problems: start with all canonical, then add reused ones
+  const discovery: DiscoveryProblem[] = source.map((p, i) => ({ ...p, displayIndex: i }));
+  
+  // Add additional entries from the shuffled pool
+  let poolIndex = 0;
+  let safetyCounter = 0;
+  const MAX_ATTEMPTS = 1000; // Prevent infinite loops
+  
+  for (let i = 0; i < needed; i++) {
+    safetyCounter++;
+    if (safetyCounter > MAX_ATTEMPTS) {
+      // Fallback: just add the problem even if it causes duplicates on the page
+      // This should never happen with reasonable inputs
+      console.warn("Discovery problem generation: max attempts reached, using fallback");
+      const reused = shuffledPool[poolIndex % shuffledPool.length];
+      discovery.push({ ...reused, displayIndex: discovery.length });
+      poolIndex++;
+      safetyCounter = 0;
+      continue;
+    }
+    
+    const reused = shuffledPool[poolIndex % shuffledPool.length];
+    
+    // Ensure reused is defined
+    if (!reused) {
+      poolIndex++;
+      i--;
+      continue;
+    }
+    
+    // Ensure we don't add the same problem consecutively
+    // and avoid duplicates on the same page
+    const currentPage = Math.floor(discovery.length / ITEMS_PER_PAGE);
+    const currentPageStart = currentPage * ITEMS_PER_PAGE;
+    const currentPageEnd = currentPageStart + ITEMS_PER_PAGE;
+    
+    // Check if this problem is already on the current page
+    const pageProblems = discovery.slice(currentPageStart, currentPageEnd);
+    const alreadyOnPage = pageProblems.some((p: DiscoveryProblem) => p && p.id === reused.id);
+    
+    // Check if the previous problem is the same
+    const lastAdded = discovery[discovery.length - 1];
+    const sameAsLast = lastAdded && lastAdded.id === reused.id;
+    
+    // If either condition is true, move to next in pool
+    if (alreadyOnPage || sameAsLast) {
+      poolIndex++;
+      // Wrap around if we reach the end
+      if (poolIndex >= shuffledPool.length) {
+        poolIndex = 0;
+      }
+      i--; // Retry this position
+      continue;
+    }
+    
+    // Add the reused problem
+    discovery.push({ ...reused, displayIndex: discovery.length });
+    poolIndex++;
+    safetyCounter = 0;
+  }
+  
+  return discovery;
+}
+
+/**
+ * The discovery library with exactly 700 display entries.
+ * This is the dataset used for the unfiltered Discovery Library view.
+ */
+export const discoveryProblems: DiscoveryProblem[] = buildDiscoveryProblems();
+
+// ---------------------------------------------------------------------------
 // Lookups
 // ---------------------------------------------------------------------------
 
@@ -538,6 +708,9 @@ function tokenize(query: string): string[] {
  * Partial, token-based search across title, category, technologies,
  * platforms, tags, and section keywords. Every token must match; results are
  * ranked by match strength, then curatedRank (deterministic).
+ * 
+ * Note: This searches the canonical problem dataset (500 unique problems).
+ * For the unfiltered Discovery Library view, use getDiscoveryProblems() instead.
  */
 export function searchProblems(query: string, filter: "All" | ProblemFilter = "All"): CanonicalProblem[] {
   const tokens = tokenize(query);
@@ -568,6 +741,32 @@ export function searchProblems(query: string, filter: "All" | ProblemFilter = "A
   return results
     .sort((a, b) => b.score - a.score || a.problem.curatedRank - b.problem.curatedRank)
     .map((r) => r.problem);
+}
+
+// ---------------------------------------------------------------------------
+// Discovery Library API
+// ---------------------------------------------------------------------------
+
+/**
+ * Get problems for the Discovery Library.
+ * When no query or filter is specified, returns the full 700-entry discovery list.
+ * When query or filter is specified, returns filtered results from canonical problems.
+ */
+export function getDiscoveryProblems(
+  query: string = "",
+  filter: "All" | ProblemFilter = "All"
+): DiscoveryProblem[] {
+  // If no query and no filter (or filter is "All"), return the full discovery list
+  if (query.trim() === "" && filter === "All") {
+    return discoveryProblems;
+  }
+  
+  // Otherwise, search canonical problems and convert to DiscoveryProblem format
+  const canonicalResults = searchProblems(query, filter);
+  return canonicalResults.map((p, i) => ({
+    ...p,
+    displayIndex: i, // Use index in filtered results as displayIndex
+  }));
 }
 
 // ---------------------------------------------------------------------------

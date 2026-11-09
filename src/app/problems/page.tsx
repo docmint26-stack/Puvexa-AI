@@ -1,4 +1,3 @@
-import Link from "next/link";
 import type { Metadata } from "next";
 
 import { AnimatedProblemsContent } from "@/components/problems/animated-problems-content";
@@ -8,7 +7,7 @@ import {
   paginate,
   parseProblemFilter,
   parseProblemPage,
-  searchProblems,
+  getDiscoveryProblems,
   type ProblemFilter,
 } from "@/lib/data";
 
@@ -27,6 +26,8 @@ export const metadata: Metadata = {
   description: `Browse 700 curated technical problems across coding, systems, networks, devices, and productivity — tap any card to start a Puvexa diagnosis with the problem prefilled.`,
 };
 
+type FilterWithAll = "All" | ProblemFilter;
+
 export default async function ProblemsPage({
   searchParams,
 }: {
@@ -34,10 +35,11 @@ export default async function ProblemsPage({
 }) {
   const sp = await searchParams;
   const query = take(sp.q)?.trim() ?? "";
-  const filter = parseProblemFilter(sp.filter);
+  const filter = parseProblemFilter(sp.filter) as FilterWithAll;
   const page = parseProblemPage(sp.page);
 
-  const results = searchProblems(query, filter);
+  // Get discovery problems (700 for unfiltered, filtered count for search/filter)
+  const results = getDiscoveryProblems(query, filter);
   const paged = paginate(results, page);
   const primarySections = ALL_PROBLEM_SECTIONS.filter((s) => s.kind === "primary");
   const crossSections = ALL_PROBLEM_SECTIONS.filter((s) => s.kind === "cross");

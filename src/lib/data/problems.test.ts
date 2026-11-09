@@ -10,10 +10,14 @@ import {
   PROBLEM_ROWS,
   PROBLEM_TOTAL_PAGES,
   canonicalProblems,
+  discoveryProblems,
   diagnoseHref,
   diagnosisContext,
   featuredProblems,
   filterToDiagnosisCategory,
+  getCanonicalProblemId,
+  getDiscoveryKey,
+  getDiscoveryProblems,
   getProblemById,
   getProblemBySlug,
   getPrimarySections,
@@ -26,6 +30,7 @@ import {
   problemsByRow,
   searchProblems,
   type CanonicalProblem,
+  type DiscoveryProblem,
   type ProblemFilter,
 } from "@/lib/data";
 import { PROBLEM_CATALOG } from "@/lib/data/problem-catalog";
@@ -41,13 +46,13 @@ const WIZARD_CATEGORIES = [
 ] as const;
 
 describe("catalog integrity", () => {
-  it("ships exactly 700 canonical records, PUV-0001 … PUV-0700", () => {
-    expect(PROBLEM_CATALOG).toHaveLength(700);
-    expect(canonicalProblems).toHaveLength(700);
+  it("ships exactly 500 canonical records, PUV-0001 … PUV-0500", () => {
+    expect(PROBLEM_CATALOG).toHaveLength(500);
+    expect(canonicalProblems).toHaveLength(500);
     expect(PROBLEM_COUNT).toBe(700);
 
     const ids = PROBLEM_CATALOG.map((p) => p.id);
-    expect(new Set(ids).size).toBe(700);
+    expect(new Set(ids).size).toBe(500);
     ids.forEach((id, i) => {
       expect(id).toBe(`PUV-${String(i + 1).padStart(4, "0")}`);
     });
@@ -55,7 +60,7 @@ describe("catalog integrity", () => {
 
   it("generates unique URL-safe slugs for every record", () => {
     const slugs = canonicalProblems.map((p) => p.slug);
-    expect(new Set(slugs).size).toBe(700);
+    expect(new Set(slugs).size).toBe(500);
     for (const slug of slugs) {
       expect(slug).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
     }
@@ -68,11 +73,11 @@ describe("catalog integrity", () => {
     }
   });
 
-  it("assigns a full curatedRank permutation (1 … 700)", () => {
+  it("assigns a full curatedRank permutation (1 … 500)", () => {
     const ranks = canonicalProblems.map((p) => p.curatedRank).sort((a, b) => a - b);
     expect(ranks[0]).toBe(1);
-    expect(ranks[699]).toBe(700);
-    expect(new Set(ranks).size).toBe(700);
+    expect(ranks[499]).toBe(500);
+    expect(new Set(ranks).size).toBe(500);
   });
 
   it("keeps every record an honest SAMPLE discovery seed", () => {
@@ -119,18 +124,18 @@ describe("section integrity", () => {
     }
   });
 
-  it("covers all 700 records exactly once across primary sections", () => {
+  it("covers all 500 records exactly once across primary sections", () => {
     const primaryIds = PRIMARY_SECTIONS.flatMap((s) => s.problemIds);
-    expect(primaryIds).toHaveLength(700);
-    expect(new Set(primaryIds).size).toBe(700);
+    expect(primaryIds).toHaveLength(500);
+    expect(new Set(primaryIds).size).toBe(500);
     const canonicalIds = new Set(canonicalProblems.map((p) => p.id));
     expect(new Set(primaryIds)).toEqual(canonicalIds);
   });
 
-  it("references 280 distinct problems from cross sections (max one cross placement each)", () => {
+  it("references 200 distinct problems from cross sections (max one cross placement each)", () => {
     const crossIds = CROSS_SECTIONS.flatMap((s) => s.problemIds);
-    expect(crossIds).toHaveLength(280);
-    expect(new Set(crossIds).size).toBe(280);
+    expect(crossIds).toHaveLength(200);
+    expect(new Set(crossIds).size).toBe(200);
     for (const id of crossIds) {
       expect(getProblemById(id)).toBeDefined();
     }
@@ -208,7 +213,7 @@ describe("search acceptance", () => {
 
   it("returns the full curated library for an empty query", () => {
     const all = searchProblems("");
-    expect(all).toHaveLength(700);
+    expect(all).toHaveLength(500);
     expect(all[0].curatedRank).toBe(featuredProblems(1)[0].curatedRank);
   });
 
@@ -228,17 +233,17 @@ describe("search acceptance", () => {
 });
 
 describe("pagination", () => {
-  it("splits the full library into 70 pages of 10", () => {
+  it("splits the full library into 50 pages of 10", () => {
     const first = paginate(canonicalProblems, 1);
     expect(first.items).toHaveLength(PROBLEM_PAGE_SIZE);
     expect(first.page).toBe(1);
-    expect(first.totalPages).toBe(70);
-    expect(first.total).toBe(700);
+    expect(first.totalPages).toBe(50);
+    expect(first.total).toBe(500);
     expect(PROBLEM_TOTAL_PAGES).toBe(70);
 
-    const last = paginate(canonicalProblems, 70);
+    const last = paginate(canonicalProblems, 50);
     expect(last.items).toHaveLength(10);
-    expect(last.page).toBe(70);
+    expect(last.page).toBe(50);
   });
 
   it("clamps out-of-range pages instead of erroring", () => {
@@ -368,8 +373,105 @@ describe("discovery UI data", () => {
   });
 
   it("builds all homepage marquee rows from the canonical set", () => {
-    const all = PROBLEM_ROWS.flatMap((row) => problemsByRow(row.label, 700));
-    expect(all.length).toBe(700);
-    expect(new Set(all.map((p) => p.id)).size).toBe(700);
+    const all = PROBLEM_ROWS.flatMap((row) => problemsByRow(row.label, 500));
+    expect(all.length).toBe(500);
+    expect(new Set(all.map((p) => p.id)).size).toBe(500);
+  });
+});
+
+describe("discovery library", () => {
+  it("exposes exactly 700 discovery problems", () => {
+    expect(discoveryProblems).toHaveLength(700);
+    expect(PROBLEM_COUNT).toBe(700);
+  });
+
+  it("preserves all canonical problems in discovery list", () => {
+    const canonicalIds = new Set(canonicalProblems.map((p) => p.id));
+    const discoveryIds = new Set(discoveryProblems.map((p) => p.id));
+    // Discovery list should contain all canonical problem IDs
+    for (const id of canonicalIds) {
+      expect(discoveryIds.has(id)).toBe(true);
+    }
+  });
+
+  it("has correct pagination: 700 items / 10 per page = 70 pages", () => {
+    expect(PROBLEM_PAGE_SIZE).toBe(10);
+    expect(Math.ceil(discoveryProblems.length / PROBLEM_PAGE_SIZE)).toBe(70);
+  });
+
+  it("each page has exactly 10 problems", () => {
+    for (let page = 1; page <= 70; page++) {
+      const paged = paginate(discoveryProblems, page);
+      expect(paged.items).toHaveLength(10);
+      expect(paged.page).toBe(page);
+      expect(paged.totalPages).toBe(70);
+      expect(paged.total).toBe(700);
+    }
+  });
+
+  it("no duplicate problems on the same page", () => {
+    for (let page = 1; page <= 70; page++) {
+      const paged = paginate(discoveryProblems, page);
+      const pageIds = paged.items.map((p: DiscoveryProblem) => p.id);
+      const uniqueIds = new Set(pageIds);
+      expect(uniqueIds.size).toBe(pageIds.length);
+    }
+  });
+
+  it("page 71 cannot be opened", () => {
+    const paged = paginate(discoveryProblems, 71);
+    expect(paged.page).toBe(70);
+    expect(paged.items).toHaveLength(10);
+  });
+
+  it("discovery problems have displayIndex for React keys", () => {
+    for (const problem of discoveryProblems) {
+      expect(problem).toHaveProperty("displayIndex");
+      expect(typeof problem.displayIndex).toBe("number");
+    }
+  });
+
+  it("getDiscoveryProblems returns 700 for unfiltered case", () => {
+    const results = getDiscoveryProblems("", "All");
+    expect(results).toHaveLength(700);
+  });
+
+  it("getDiscoveryProblems returns filtered results for search", () => {
+    const results = getDiscoveryProblems("wifi", "All");
+    expect(results.length).toBeLessThanOrEqual(700);
+    expect(results.length).toBeGreaterThan(0);
+  });
+
+  it("getDiscoveryProblems returns filtered results for category filter", () => {
+    const results = getDiscoveryProblems("", "Network" as ProblemFilter);
+    expect(results.length).toBeLessThanOrEqual(700);
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.every((p: DiscoveryProblem) => p.filter === "Network")).toBe(true);
+  });
+
+  it("getDiscoveryKey generates unique keys for duplicated problems", () => {
+    const problem1: DiscoveryProblem = { id: "PUV-0001", displayIndex: 0 } as DiscoveryProblem;
+    const problem2: DiscoveryProblem = { id: "PUV-0001", displayIndex: 500 } as DiscoveryProblem;
+    const key1 = getDiscoveryKey(problem1);
+    const key2 = getDiscoveryKey(problem2);
+    expect(key1).toBe("PUV-0001-0");
+    expect(key2).toBe("PUV-0001-500");
+    expect(key1).not.toBe(key2);
+  });
+
+  it("getCanonicalProblemId returns the original problem ID", () => {
+    const problem: DiscoveryProblem = { id: "PUV-0001", displayIndex: 500 } as DiscoveryProblem;
+    expect(getCanonicalProblemId(problem)).toBe("PUV-0001");
+  });
+
+  it("discovery problems maintain category diversity", () => {
+    const filters = new Set(discoveryProblems.map((p: DiscoveryProblem) => p.filter));
+    expect(filters.size).toBeGreaterThan(1);
+    expect(filters).toContain("Coding");
+    expect(filters).toContain("System");
+    expect(filters).toContain("Network");
+    expect(filters).toContain("Device");
+    expect(filters).toContain("Productivity");
+    expect(filters).toContain("Development Tools");
   });
 });

@@ -5,7 +5,9 @@ import Link from "next/link";
 
 import { ProblemCard } from "./problem-card";
 import { ProblemFilters } from "./problem-filters";
-import type { ProblemFilter, ProblemSection } from "@/lib/data";
+import type { ProblemFilter, ProblemSection, DiscoveryProblem } from "@/lib/data";
+
+type FilterWithAll = "All" | ProblemFilter;
 
 interface PaginatedResult<T> {
   items: T[];
@@ -15,15 +17,15 @@ interface PaginatedResult<T> {
 }
 
 interface AnimatedProblemsContentProps {
-  paged: PaginatedResult<any>;
+  paged: PaginatedResult<DiscoveryProblem>;
   query: string;
-  filter: ProblemFilter;
+  filter: FilterWithAll;
   primarySections: ProblemSection[];
   crossSections: ProblemSection[];
   problemCount: number;
 }
 
-function pageHref(page: number, query: string, filter: ProblemFilter): string {
+function pageHref(page: number, query: string, filter: FilterWithAll): string {
   const params = new URLSearchParams();
   if (query.trim()) params.set("q", query.trim());
   if (filter !== "All") params.set("filter", filter);
@@ -41,7 +43,7 @@ function Pagination({
   page: number;
   totalPages: number;
   query: string;
-  filter: ProblemFilter;
+  filter: FilterWithAll;
 }) {
   if (totalPages <= 1) return null;
 
@@ -168,7 +170,7 @@ export function AnimatedProblemsContent({
             animate="visible"
             transition={{ staggerChildren: 0.05, delayChildren: 0.5 }}
           >
-            {paged.items.map((problem: any) => (
+            {paged.items.map((problem) => (
               <motion.div
                 key={problem.id}
                 variants={{
