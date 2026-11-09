@@ -343,10 +343,6 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Investors & partners */}
-      <InvestorsAndPartnersSection />
-
-
       {/* Token economy */}
       <section id="token" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-20 sm:px-6">
         <div className="rounded-2xl border border-border/70 bg-linear-to-br from-violet-500/10 via-card/50 to-cyan-400/10 p-8 ring-1 ring-primary/10 sm:p-12">
