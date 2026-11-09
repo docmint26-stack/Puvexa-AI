@@ -50,7 +50,17 @@ const EVIDENCE: { key: EvidenceKind; label: string }[] = [
   { key: "screenshot", label: "Screenshot" },
 ];
 
-function WizardShell({ children, footer }: { children: React.ReactNode; footer: React.ReactNode }) {
+type SelectedProblem = { id: string; title: string };
+
+function WizardShell({
+  children,
+  footer,
+  selectedProblem,
+}: {
+  children: React.ReactNode;
+  footer: React.ReactNode;
+  selectedProblem?: SelectedProblem;
+}) {
   return (
     <div className="flex min-h-[calc(100dvh-8rem)] flex-col">
       <PageHeader
@@ -63,13 +73,29 @@ function WizardShell({ children, footer }: { children: React.ReactNode; footer: 
           </div>
         }
       />
+      {selectedProblem && (
+        <div className="mt-4 flex items-start gap-2 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
+          <span className="shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 font-mono font-medium text-primary">
+            {selectedProblem.id}
+          </span>
+          <span className="min-w-0 text-foreground">
+            Selected problem: <span className="font-medium">{selectedProblem.title}</span>
+          </span>
+        </div>
+      )}
       {children}
       {footer}
     </div>
   );
 }
 
-export function DiagnoseWizard({ defaults }: { defaults?: Partial<FormValues> }) {
+export function DiagnoseWizard({
+  defaults,
+  selectedProblem,
+}: {
+  defaults?: Partial<FormValues>;
+  selectedProblem?: SelectedProblem;
+}) {
   const router = useRouter();
   const { startDiagnosis } = useDiagnosis();
   const [analyzing, setAnalyzing] = React.useState(false);
@@ -153,7 +179,7 @@ export function DiagnoseWizard({ defaults }: { defaults?: Partial<FormValues> })
 
   if (analyzing) {
     return (
-      <WizardShell footer={<span />}>
+      <WizardShell footer={<span />} selectedProblem={selectedProblem}>
         <AnimatePresence>
           <AnalyzingPanel title={title} onComplete={finishAnalysis} production={!isDemoMode} stage={stage.name} stageProgress={stage.progress} />
         </AnimatePresence>
@@ -163,6 +189,7 @@ export function DiagnoseWizard({ defaults }: { defaults?: Partial<FormValues> })
 
   return (
     <WizardShell
+      selectedProblem={selectedProblem}
       footer={
         <div className="mt-8 flex items-center justify-between border-t border-border/70 pt-4">
           <p className="text-xs text-muted-foreground">

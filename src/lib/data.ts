@@ -12,7 +12,9 @@ export * from "./demo/marketing";
 export * from "./demo/dashboard";
 export * from "./demo/help";
 export * from "./demo/search";
-export * from "./data/top-problems";
+export * from "./data/problem-types";
+export * from "./data/problem-sections";
+export * from "./data/problems";
 export * from "./data/programs";
 export * from "./data/investors-partners";
 

@@ -66,4 +66,10 @@ describe("InvestorsAndPartnersSection", () => {
       expect(fs.existsSync(file), `${partner.logo} is missing from public/partners`).toBe(true);
     }
   });
+
+  it("documents an official source URL for every logo", () => {
+    for (const partner of investorsAndPartners) {
+      expect(partner.logoSource, `${partner.id} has no logoSource`).toMatch(/^https:\/\//);
+    }
+  });
 });

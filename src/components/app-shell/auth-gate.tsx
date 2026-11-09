@@ -16,12 +16,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   React.useEffect(() => {
+    // Preserve path + query so prefilled diagnosis links survive the gate.
+    const next = `${pathname}${window.location.search}`;
     if (isDemoMode) {
       // Demo mode reads directly from the persisted auth store. Guests may
       // pass through the gate — their session is local-only and touches no
       // protected API.
       if (!authed && !isGuest) {
-        router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+        router.replace(`/login?next=${encodeURIComponent(next)}`);
       }
       return;
     }
@@ -29,7 +31,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     // Production: restore the persisted Supabase session, then gate.
     void restoreSession().then(() => {
       if (!useAuthStore.getState().user && !isGuest) {
-        router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+        router.replace(`/login?next=${encodeURIComponent(next)}`);
       }
     });
     const unsubscribe = watchAuthState();

@@ -16,7 +16,6 @@ import { Icon } from "@/components/shared/icon";
 import { GitHubMark } from "@/components/shared/github-mark";
 import { AnimatedCounter, RotatingWords, Reveal } from "@/components/shared/motion";
 import { TokenBadge } from "@/components/shared/token-badge";
-import { LiveDiagnosisPanel } from "@/components/diagnose/live-diagnosis-panel";
 import { LeaderboardContent } from "@/components/leaderboard/leaderboard-content";
 import { TopProblemsSection } from "@/components/landing/top-problems-section";
 import { ProgramsSection } from "@/components/landing/programs-section";
@@ -190,18 +189,7 @@ export function LandingPage() {
           </motion.div>
         </div>
 
-        {/* Hero mockup */}
-        <motion.div
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.35, duration: 0.6 }}
-          className="relative mx-auto mt-14 max-w-3xl"
-        >
-          <div className="pointer-events-none absolute -inset-px rounded-2xl bg-linear-to-b from-primary/20 to-cyan-400/10 opacity-70 blur-md" />
-          <div className="relative rounded-2xl border border-border/70 bg-card/80 p-2 shadow-2xl shadow-black/30 backdrop-blur-xl">
-            <LiveDiagnosisPanel context="Windows 11 · onboard WLAN · battery" matchedSignatures={3} reward={70} />
-          </div>
-        </motion.div>
+
       </section>
 
       {/* Top Searching Problems */}
@@ -315,33 +303,6 @@ export function LandingPage() {
 
       {/* Our Programs */}
       <ProgramsSection />
-
-      {/* Fundraising strategy */}
-      <section className="border-y border-border/50 bg-card/30">
-        <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
-          <div className="flex flex-col gap-6 rounded-2xl border border-primary/20 bg-linear-to-br from-primary/10 via-card/50 to-cyan-400/10 p-8 sm:flex-row sm:items-end sm:justify-between sm:p-10">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">Fundraising strategy</p>
-              <h2 className="mt-2 font-heading text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-                Building the proof-of-help network
-              </h2>
-              <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
-                We are raising a seed round to scale verified diagnosis, grow the fixer network, and bring FIX to a wider community.
-              </p>
-            </div>
-            <div className="grid shrink-0 grid-cols-2 gap-3 sm:min-w-72">
-              <div className="rounded-xl border border-border/70 bg-card/70 p-4">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Seed round</p>
-                <p className="mt-1 font-heading text-2xl font-bold text-foreground">$1.5M</p>
-              </div>
-              <div className="rounded-xl border border-border/70 bg-card/70 p-4">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Target valuation</p>
-                <p className="mt-1 font-heading text-2xl font-bold text-foreground">~$10M</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
 
       {/* Token economy */}
       <section id="token" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-20 sm:px-6">
