@@ -20,7 +20,7 @@ export interface Recommendation {
 }
 
 export const RECOMMENDATIONS: Recommendation[] = [
-  { id: "r1", rank: 1, title: "Disable Wi-Fi power-saving on battery", successRate: 92, cases: 1280, minutes: "4 min", badges: ["Verified", "Top pick", "Low risk"], tone: "primary" },
+  { id: "r1", rank: 1, title: "Disable Wi-Fi power-saving on battery", successRate: 92, cases: 1700, minutes: "4 min", badges: ["Verified", "Top pick", "Low risk"], tone: "primary" },
   { id: "r2", rank: 2, title: "Update the WLAN driver", successRate: 88, cases: 1093, minutes: "8 min", badges: ["High confidence"], tone: "muted" },
   { id: "r3", rank: 3, title: "Reset TCP/IP & renew DHCP lease", successRate: 84, cases: 854, minutes: "6 min", badges: ["Common fix"], tone: "muted" },
   { id: "r4", rank: 4, title: "Disable Fast Startup", successRate: 81, cases: 730, minutes: "3 min", badges: ["Low risk"], tone: "muted" },
@@ -93,7 +93,7 @@ function RecommendationCard({
           <p className="mt-0.5 text-[11px] text-muted-foreground">
             <span className="font-semibold text-success">{rec.successRate}% success</span>
             <span className="mx-1.5 opacity-50">·</span>
-            {rec.cases.toLocaleString()} cases
+            {rec.cases.toLocaleString()} fixes
             <span className="mx-1.5 opacity-50">·</span>
             <Clock3 className="mr-0.5 inline size-2.5" />
             {rec.minutes}
@@ -130,7 +130,7 @@ export function LiveDiagnosisPanel({
   reward?: number;
   maxVisible?: number;
 }) {
-  const [expanded, setExpanded] = React.useState(false);
+  const [expanded, setExpanded] = React.useState(true);
   const [active, setActive] = React.useState(RECOMMENDATIONS[0].id);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [nearBottom, setNearBottom] = React.useState(false);
